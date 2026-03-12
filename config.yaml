@@ -1,0 +1,16 @@
+# 服务器配置
+server:
+  port: 8080
+  mode: release  # debug, release, test
+
+# 数据库配置
+database:
+  path: /data/timer.db
+  log_level: warn  # silent, error, warn, info
+
+# Redis 配置（可选）
+redis:
+  enabled: false
+  addr: 127.0.0.1:6379
+  password: ""
+  db: 0

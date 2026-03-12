@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>定时任务管理器</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0f0f1a;
+            --bg-secondary: #1a1a2e;
+            --bg-card: #16213e;
+            --bg-hover: #1f2b47;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b0;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --border: #2a2a4a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .user-name {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .stats {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .stat-item {
+            background: var(--bg-card);
+            padding: 0.75rem 1.25rem;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .filters {
+            display: flex;
+            gap: 1rem;
+        }
+
+        select, input {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 0.625rem 1rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        select:focus, input:focus {
+            border-color: var(--accent);
+        }
+
+        .btn {
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+        }
+
+        .btn-sm {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.75rem;
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .tasks-grid {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .task-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.25rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s;
+        }
+
+        .task-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .task-title {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .task-key {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-family: monospace;
+            margin-top: 0.25rem;
+        }
+
+        .task-status {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-active {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--success);
+        }
+
+        .status-paused {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--warning);
+        }
+
+        .status-finished {
+            background: rgba(107, 114, 128, 0.2);
+            color: #9ca3af;
+        }
+
+        .task-body {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .task-info {
+            text-align: center;
+        }
+
+        .task-info-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .task-info-value {
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .task-url {
+            background: var(--bg-secondary);
+            padding: 0.75rem;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            word-break: break-all;
+        }
+
+        .task-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: scale(0.9);
+            transition: transform 0.3s;
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        textarea.form-input {
+            min-height: 100px;
+            resize: vertical;
+            font-family: monospace;
+        }
+
+        .form-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .type-selector {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .type-option {
+            flex: 1;
+            padding: 0.75rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .type-option.active {
+            border-color: var(--accent);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .type-option-label {
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .type-option-desc {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .page-btn {
+            padding: 0.5rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .page-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        /* 登录页面样式 */
+        .login-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .login-box {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .login-subtitle {
+            text-align: center;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            font-size: 0.875rem;
+        }
+
+        .login-tabs {
+            display: flex;
+            margin-bottom: 1.5rem;
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 0.25rem;
+        }
+
+        .login-tab {
+            flex: 1;
+            padding: 0.75rem;
+            text-align: center;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .login-tab.active {
+            background: var(--accent);
+            color: white;
+        }
+
+        .login-form {
+            display: none;
+        }
+
+        .login-form.active {
+            display: block;
+        }
+
+        .login-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--danger);
+            border-radius: 8px;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            font-size: 0.8rem;
+            color: var(--danger);
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            header {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .stats {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .toolbar {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .filters {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .task-body {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 登录页面 -->
+    <div class="login-container" id="loginPage">
+        <div class="login-box">
+            <h1 class="login-title">定时任务管理器</h1>
+            <p class="login-subtitle">登录或注册以管理您的定时任务</p>
+            
+            <div class="login-tabs">
+                <div class="login-tab active" onclick="switchLoginTab('login')">登录</div>
+                <div class="login-tab" onclick="switchLoginTab('register')">注册</div>
+            </div>
+
+            <div class="login-error" id="loginError"></div>
+
+            <!-- 登录表单 -->
+            <form class="login-form active" id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <input type="text" class="form-input" id="loginUsername" required placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <input type="password" class="form-input" id="loginPassword" required placeholder="请输入密码">
+                </div>
+                <div class="form-actions" style="justify-content: center;">
+                    <button type="submit" class="btn btn-primary" style="width: 50%; padding: 0.4rem 0.8rem; font-size: 0.75rem; text-align: center;">登录</button>
+                </div>
+            </form>
+
+            <!-- 注册表单 -->
+            <form class="login-form" id="registerForm" onsubmit="handleRegister(event)">
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <input type="text" class="form-input" id="regUsername" required minlength="3" placeholder="至少3个字符">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">昵称</label>
+                    <input type="text" class="form-input" id="regNickname" placeholder="可选">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <input type="password" class="form-input" id="regPassword" required minlength="6" placeholder="至少6个字符">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">确认密码</label>
+                    <input type="password" class="form-input" id="regPassword2" required placeholder="再次输入密码">
+                </div>
+                <div class="form-actions" style="justify-content: center;">
+                    <button type="submit" class="btn btn-primary" style="width: 50%; padding: 0.4rem 0.8rem; font-size: 0.75rem; text-align: center;">注册</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 主页面 -->
+    <div class="container" id="mainPage" style="display: none;">
+        <header>
+            <h1>定时任务管理器</h1>
+            <div class="user-info">
+                <span class="user-name" id="currentUser"></span>
+                <button class="btn btn-secondary btn-sm" onclick="logout()">退出</button>
+            </div>
+        </header>
+
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-value" id="activeCount">0</div>
+                <div class="stat-label">运行中</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="pausedCount">0</div>
+                <div class="stat-label">已暂停</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="queueSize">0</div>
+                <div class="stat-label">队列中</div>
+            </div>
+        </div>
+
+        <div class="toolbar" style="margin-top: 1.5rem;">
+            <div class="filters">
+                <select id="statusFilter">
+                    <option value="">全部状态</option>
+                    <option value="1">运行中</option>
+                    <option value="2">已暂停</option>
+                    <option value="3">已完成</option>
+                </select>
+                <select id="typeFilter">
+                    <option value="">全部类型</option>
+                    <option value="1">一次性任务</option>
+                    <option value="2">间隔执行</option>
+                    <option value="3">定时执行</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" onclick="openCreateModal()">
+                <span>+</span> 创建任务
+            </button>
+        </div>
+
+        <div id="tasksList" class="tasks-grid"></div>
+
+        <div id="pagination" class="pagination"></div>
+    </div>
+
+    <!-- 创建/编辑任务模态框 -->
+    <div class="modal-overlay" id="taskModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">创建任务</h2>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <form id="taskForm">
+                <input type="hidden" id="taskKey">
+                <div class="form-group">
+                    <label class="form-label">任务名称</label>
+                    <input type="text" class="form-input" id="taskName" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">任务类型</label>
+                    <div class="type-selector">
+                        <div class="type-option active" data-type="1" onclick="selectType(1)">
+                            <div class="type-option-label">一次性</div>
+                            <div class="type-option-desc">指定时间执行一次</div>
+                        </div>
+                        <div class="type-option" data-type="2" onclick="selectType(2)">
+                            <div class="type-option-label">间隔执行</div>
+                            <div class="type-option-desc">按固定间隔重复</div>
+                        </div>
+                        <div class="type-option" data-type="3" onclick="selectType(3)">
+                            <div class="type-option-label">定时执行</div>
+                            <div class="type-option-desc">指定时间点间隔</div>
+                        </div>
+                    </div>
+                    <input type="hidden" id="taskType" value="1">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">首次执行时间</label>
+                        <input type="datetime-local" class="form-input" id="startTime">
+                    </div>
+                    <div class="form-group" id="intervalGroup" style="display: none;">
+                        <label class="form-label">执行间隔（秒）</label>
+                        <input type="number" class="form-input" id="interval" min="1" placeholder="60">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">最大重试次数</label>
+                        <input type="number" class="form-input" id="maxRetryCount" value="3" min="0">
+                    </div>
+                    <div class="form-group" id="maxExecGroup" style="display: none;">
+                        <label class="form-label">最大执行次数（0=无限制）</label>
+                        <input type="number" class="form-input" id="maxExecCount" value="0" min="0">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">HTTP 方法</label>
+                        <select class="form-input" id="httpMethod">
+                            <option value="GET">GET</option>
+                            <option value="POST" selected>POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                            <option value="PATCH">PATCH</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">任务分组</label>
+                        <input type="text" class="form-input" id="taskGroup" value="default">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">请求 URL</label>
+                    <input type="url" class="form-input" id="httpUrl" required placeholder="https://example.com/api">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">请求头（JSON 格式）</label>
+                    <textarea class="form-input" id="httpHeaders" placeholder='{"Content-Type": "application/json"}'></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">请求体</label>
+                    <textarea class="form-input" id="httpBody" placeholder='{"key": "value"}'></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 日志模态框 -->
+    <div class="modal-overlay" id="logsModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">执行日志 - <span id="logsTaskName"></span></h2>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span id="logsAutoRefresh" style="font-size: 0.75rem; color: var(--success);">自动刷新中</span>
+                    <button class="modal-close" onclick="closeLogsModal()">&times;</button>
+                </div>
+            </div>
+            <div id="logsContent"></div>
+        </div>
+    </div>
+
+    <!-- 日志详情模态框 -->
+    <div class="modal-overlay" id="logDetailModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">日志详情</h2>
+                <button class="modal-close" onclick="closeLogDetailModal()">&times;</button>
+            </div>
+            <div id="logDetailContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let currentPage = 1;
+        let editingKey = null;
+        let logsRefreshTimer = null;
+        let currentLogsKey = null;
+        let authToken = localStorage.getItem('token');
+        let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuth();
+        });
+
+        // 检查认证状态
+        function checkAuth() {
+            if (authToken && currentUser) {
+                showMainPage();
+            } else {
+                showLoginPage();
+            }
+        }
+
+        // 显示登录页面
+        function showLoginPage() {
+            document.getElementById('loginPage').style.display = 'flex';
+            document.getElementById('mainPage').style.display = 'none';
+        }
+
+        // 显示主页面
+        function showMainPage() {
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('mainPage').style.display = 'block';
+            document.getElementById('currentUser').textContent = currentUser.nickname || currentUser.username;
+            
+            loadTasks();
+            loadStats();
+            setInterval(loadStats, 5000);
+            setInterval(loadTasks, 3000);
+            setInterval(updateCountdowns, 1000);
+
+            document.getElementById('statusFilter').addEventListener('change', () => {
+                currentPage = 1;
+                loadTasks();
+            });
+            document.getElementById('typeFilter').addEventListener('change', () => {
+                currentPage = 1;
+                loadTasks();
+            });
+
+            document.getElementById('taskForm').addEventListener('submit', handleSubmit);
+        }
+
+        // 切换登录/注册标签
+        function switchLoginTab(tab) {
+            document.querySelectorAll('.login-tab').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.login-form').forEach(el => el.classList.remove('active'));
+            
+            if (tab === 'login') {
+                document.querySelector('.login-tab:first-child').classList.add('active');
+                document.getElementById('loginForm').classList.add('active');
+            } else {
+                document.querySelector('.login-tab:last-child').classList.add('active');
+                document.getElementById('registerForm').classList.add('active');
+            }
+            document.getElementById('loginError').style.display = 'none';
+        }
+
+        // 显示登录错误
+        function showLoginError(msg) {
+            const el = document.getElementById('loginError');
+            el.textContent = msg;
+            el.style.display = 'block';
+        }
+
+        // 处理登录
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+
+            try {
+                const res = await fetch(`${API_BASE}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    authToken = data.token;
+                    currentUser = data.user;
+                    localStorage.setItem('token', authToken);
+                    localStorage.setItem('user', JSON.stringify(currentUser));
+                    showMainPage();
+                } else {
+                    showLoginError(data.error || '登录失败');
+                }
+            } catch (err) {
+                showLoginError('网络错误，请重试');
+            }
+        }
+
+        // 处理注册
+        async function handleRegister(e) {
+            e.preventDefault();
+            const username = document.getElementById('regUsername').value;
+            const nickname = document.getElementById('regNickname').value;
+            const password = document.getElementById('regPassword').value;
+            const password2 = document.getElementById('regPassword2').value;
+
+            if (password !== password2) {
+                showLoginError('两次输入的密码不一致');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, nickname, password })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    alert('注册成功，请登录');
+                    switchLoginTab('login');
+                    document.getElementById('loginUsername').value = username;
+                } else {
+                    showLoginError(data.error || '注册失败');
+                }
+            } catch (err) {
+                showLoginError('网络错误，请重试');
+            }
+        }
+
+        // 退出登录
+        function logout() {
+            authToken = null;
+            currentUser = null;
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            showLoginPage();
+        }
+
+        // 带认证的请求
+        async function authFetch(url, options = {}) {
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+                ...(options.headers || {})
+            };
+            
+            const res = await fetch(url, { ...options, headers });
+            
+            if (res.status === 401) {
+                logout();
+                return null;
+            }
+            
+            return res;
+        }
+
+        // 加载任务列表
+        async function loadTasks() {
+            const status = document.getElementById('statusFilter').value;
+            const type = document.getElementById('typeFilter').value;
+
+            let url = `${API_BASE}/tasks?page=${currentPage}&page_size=10`;
+            if (status) url += `&status=${status}`;
+            if (type) url += `&type=${type}`;
+
+            try {
+                const res = await authFetch(url);
+                if (!res) return;
+                const data = await res.json();
+
+                let tasks = data.data || [];
+                tasks.sort((a, b) => a.next_exec_time - b.next_exec_time);
+
+                renderTasks(tasks);
+                renderPagination(data.pagination || {});
+            } catch (err) {
+                console.error('Failed to load tasks:', err);
+            }
+        }
+
+        // 渲染任务列表
+        function renderTasks(tasks) {
+            const container = document.getElementById('tasksList');
+
+            if (tasks.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📋</div>
+                        <div>暂无任务</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = tasks.map(task => `
+                <div class="task-card" data-next-exec="${task.next_exec_time}">
+                    <div class="task-header">
+                        <div>
+                            <div class="task-title">${escapeHtml(task.name)}</div>
+                            <div class="task-key">${escapeHtml(task.key)}</div>
+                        </div>
+                        <span class="task-status status-${getStatusClass(task.status)}">${task.status_desc}</span>
+                    </div>
+                    <div class="task-body">
+                        <div class="task-info">
+                            <div class="task-info-label">类型</div>
+                            <div class="task-info-value">${task.type_desc}</div>
+                        </div>
+                        <div class="task-info">
+                            <div class="task-info-label">下次执行</div>
+                            <div class="task-info-value next-exec-time" data-time="${task.next_exec_time}">${formatCountdown(task.next_exec_time)}</div>
+                        </div>
+                        <div class="task-info">
+                            <div class="task-info-label">已执行</div>
+                            <div class="task-info-value">${task.exec_count}次</div>
+                        </div>
+                        <div class="task-info">
+                            <div class="task-info-label">重试次数</div>
+                            <div class="task-info-value">${task.max_retry_count}次</div>
+                        </div>
+                    </div>
+                    <div class="task-url">
+                        <strong>${task.http_method}</strong> ${escapeHtml(task.http_url)}
+                    </div>
+                    <div class="task-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="viewLogs('${task.key}')">日志</button>
+                        ${task.status === 1 ? 
+                            `<button class="btn btn-sm btn-warning" onclick="pauseTask('${task.key}')">暂停</button>` :
+                            task.status === 2 ? 
+                            `<button class="btn btn-sm btn-success" onclick="resumeTask('${task.key}')">恢复</button>` : ''
+                        }
+                        <button class="btn btn-sm btn-secondary" onclick="editTask('${task.key}')">编辑</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteTask('${task.key}')">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 渲染分页
+        function renderPagination(pagination) {
+            const container = document.getElementById('pagination');
+            const { page, total_page } = pagination;
+
+            if (!total_page || total_page <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+
+            let html = '';
+            for (let i = 1; i <= total_page; i++) {
+                html += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+            }
+            container.innerHTML = html;
+        }
+
+        // 加载统计
+        async function loadStats() {
+            try {
+                const res = await authFetch(`${API_BASE}/stats`);
+                if (!res) return;
+                const data = await res.json();
+                document.getElementById('activeCount').textContent = data.active_tasks || 0;
+                document.getElementById('pausedCount').textContent = data.paused_tasks || 0;
+                document.getElementById('queueSize').textContent = data.queue_size || 0;
+            } catch (err) {
+                console.error('Failed to load stats:', err);
+            }
+        }
+
+        // 打开创建模态框
+        async function openCreateModal() {
+            editingKey = null;
+            document.getElementById('modalTitle').textContent = '创建任务';
+            document.getElementById('taskForm').reset();
+            document.getElementById('taskType').value = '1';
+            selectType(1);
+            await generateKey();
+            document.getElementById('taskModal').classList.add('active');
+        }
+
+        // 关闭模态框
+        function closeModal() {
+            document.getElementById('taskModal').classList.remove('active');
+        }
+
+        // 选择任务类型
+        function selectType(type) {
+            document.querySelectorAll('.type-option').forEach(el => el.classList.remove('active'));
+            document.querySelector(`.type-option[data-type="${type}"]`).classList.add('active');
+            document.getElementById('taskType').value = type;
+
+            const intervalGroup = document.getElementById('intervalGroup');
+            const maxExecGroup = document.getElementById('maxExecGroup');
+
+            if (type === 1) {
+                intervalGroup.style.display = 'none';
+                maxExecGroup.style.display = 'none';
+            } else {
+                intervalGroup.style.display = 'block';
+                maxExecGroup.style.display = 'block';
+            }
+        }
+
+        // 生成 Key
+        async function generateKey() {
+            try {
+                const res = await authFetch(`${API_BASE}/generate-key`);
+                if (!res) return;
+                const data = await res.json();
+                document.getElementById('taskKey').value = data.key;
+            } catch (err) {
+                const key = Math.random().toString(36).substring(2, 10);
+                document.getElementById('taskKey').value = key;
+            }
+        }
+
+        // 提交表单
+        async function handleSubmit(e) {
+            e.preventDefault();
+
+            const type = parseInt(document.getElementById('taskType').value);
+            const startTimeStr = document.getElementById('startTime').value;
+            const startTime = startTimeStr ? new Date(startTimeStr).getTime() / 1000 : Date.now() / 1000;
+
+            let key = document.getElementById('taskKey').value;
+            if (!key) {
+                key = Math.random().toString(36).substring(2, 10);
+            }
+
+            const taskData = {
+                name: document.getElementById('taskName').value,
+                key: key,
+                type: type,
+                start_time: Math.floor(startTime),
+                interval: type !== 1 ? parseInt(document.getElementById('interval').value) || 60 : 0,
+                max_retry_count: parseInt(document.getElementById('maxRetryCount').value) || 3,
+                max_exec_count: type !== 1 ? parseInt(document.getElementById('maxExecCount').value) || 0 : 0,
+                http_method: document.getElementById('httpMethod').value,
+                http_url: document.getElementById('httpUrl').value,
+                http_headers: parseHeaders(document.getElementById('httpHeaders').value),
+                http_body: document.getElementById('httpBody').value,
+                group: document.getElementById('taskGroup').value || 'default'
+            };
+
+            try {
+                let res;
+                if (editingKey) {
+                    res = await authFetch(`${API_BASE}/tasks/${editingKey}`, {
+                        method: 'PUT',
+                        body: JSON.stringify(taskData)
+                    });
+                } else {
+                    res = await authFetch(`${API_BASE}/tasks`, {
+                        method: 'POST',
+                        body: JSON.stringify(taskData)
+                    });
+                }
+
+                if (!res) return;
+
+                if (res.ok) {
+                    closeModal();
+                    loadTasks();
+                    loadStats();
+                } else {
+                    const err = await res.json();
+                    alert(err.error || '操作失败');
+                }
+            } catch (err) {
+                alert('请求失败: ' + err.message);
+            }
+        }
+
+        // 编辑任务
+        async function editTask(key) {
+            try {
+                const res = await authFetch(`${API_BASE}/tasks/${key}`);
+                if (!res) return;
+                const data = await res.json();
+                const task = data.data;
+
+                editingKey = key;
+                document.getElementById('modalTitle').textContent = '编辑任务';
+                document.getElementById('taskName').value = task.name;
+                document.getElementById('taskKey').value = task.key;
+                selectType(task.type);
+                document.getElementById('startTime').value = formatDateTimeLocal(task.start_time);
+                document.getElementById('interval').value = task.interval || '';
+                document.getElementById('maxRetryCount').value = task.max_retry_count;
+                document.getElementById('maxExecCount').value = task.max_exec_count;
+                document.getElementById('httpMethod').value = task.http_method;
+                document.getElementById('httpUrl').value = task.http_url;
+                document.getElementById('httpHeaders').value = task.http_headers ? JSON.stringify(task.http_headers, null, 2) : '';
+                document.getElementById('httpBody').value = task.http_body || '';
+                document.getElementById('taskGroup').value = task.group;
+
+                document.getElementById('taskModal').classList.add('active');
+            } catch (err) {
+                alert('加载任务失败: ' + err.message);
+            }
+        }
+
+        // 删除任务
+        async function deleteTask(key) {
+            if (!confirm('确定要删除这个任务吗？')) return;
+
+            try {
+                const res = await authFetch(`${API_BASE}/tasks/${key}`, { method: 'DELETE' });
+                if (res && res.ok) {
+                    loadTasks();
+                    loadStats();
+                }
+            } catch (err) {
+                alert('删除失败: ' + err.message);
+            }
+        }
+
+        // 暂停任务
+        async function pauseTask(key) {
+            try {
+                const res = await authFetch(`${API_BASE}/tasks/${key}/pause`, { method: 'POST' });
+                if (res && res.ok) {
+                    loadTasks();
+                    loadStats();
+                }
+            } catch (err) {
+                alert('暂停失败: ' + err.message);
+            }
+        }
+
+        // 恢复任务
+        async function resumeTask(key) {
+            try {
+                const res = await authFetch(`${API_BASE}/tasks/${key}/resume`, { method: 'POST' });
+                if (res && res.ok) {
+                    loadTasks();
+                    loadStats();
+                }
+            } catch (err) {
+                alert('恢复失败: ' + err.message);
+            }
+        }
+
+        // 查看日志
+        async function viewLogs(key) {
+            currentLogsKey = key;
+            document.getElementById('logsTaskName').textContent = key;
+            document.getElementById('logsModal').classList.add('active');
+            document.getElementById('logsAutoRefresh').style.display = 'inline';
+            
+            await refreshLogs();
+            
+            if (logsRefreshTimer) {
+                clearInterval(logsRefreshTimer);
+            }
+            logsRefreshTimer = setInterval(refreshLogs, 2000);
+        }
+
+        // 刷新日志
+        async function refreshLogs() {
+            if (!currentLogsKey) return;
+            
+            try {
+                const res = await authFetch(`${API_BASE}/tasks/${currentLogsKey}/logs`);
+                if (!res) return;
+                const data = await res.json();
+
+                const container = document.getElementById('logsContent');
+                if (!data.data || data.data.length === 0) {
+                    container.innerHTML = '<div class="empty-state">暂无执行日志</div>';
+                } else {
+                    container.innerHTML = data.data.map((log, index) => `
+                        <div class="task-card" style="margin-bottom: 0.5rem;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                <span>${formatTime(log.exec_time)}</span>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span class="task-status status-${log.success ? 'active' : 'paused'}">${log.success ? '成功' : '失败'}</span>
+                                    <button class="btn btn-sm btn-secondary" onclick="showLogDetail(${index})">详情</button>
+                                </div>
+                            </div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                                状态码: ${log.status_code} | 重试: ${log.retry_count}次 | ${escapeHtml(truncateText(log.message, 50))}
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    window.currentLogs = data.data;
+                }
+            } catch (err) {
+                console.error('刷新日志失败:', err);
+            }
+        }
+
+        // 截断文本
+        function truncateText(text, maxLen) {
+            if (!text) return '';
+            if (text.length <= maxLen) return text;
+            return text.substring(0, maxLen) + '...';
+        }
+
+        // 显示日志详情
+        function showLogDetail(index) {
+            if (!window.currentLogs || !window.currentLogs[index]) return;
+            
+            const log = window.currentLogs[index];
+            const container = document.getElementById('logDetailContent');
+            
+            container.innerHTML = `
+                <div style="margin-bottom: 1rem;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                        <span style="color: var(--text-secondary);">执行时间</span>
+                        <span>${formatTime(log.exec_time)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                        <span style="color: var(--text-secondary);">执行状态</span>
+                        <span class="task-status status-${log.success ? 'active' : 'paused'}">${log.success ? '成功' : '失败'}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                        <span style="color: var(--text-secondary);">HTTP 状态码</span>
+                        <span>${log.status_code}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                        <span style="color: var(--text-secondary);">重试次数</span>
+                        <span>${log.retry_count}</span>
+                    </div>
+                </div>
+                <div style="margin-bottom: 0.5rem; color: var(--text-secondary);">执行结果：</div>
+                <div style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; word-break: break-all; white-space: pre-wrap; max-height: 300px; overflow-y: auto;">
+${escapeHtml(log.message) || '无'}
+                </div>
+            `;
+            
+            document.getElementById('logDetailModal').classList.add('active');
+        }
+
+        // 关闭日志模态框
+        function closeLogsModal() {
+            document.getElementById('logsModal').classList.remove('active');
+            if (logsRefreshTimer) {
+                clearInterval(logsRefreshTimer);
+                logsRefreshTimer = null;
+            }
+            currentLogsKey = null;
+        }
+
+        // 关闭日志详情模态框
+        function closeLogDetailModal() {
+            document.getElementById('logDetailModal').classList.remove('active');
+        }
+
+        // 跳转页面
+        function goToPage(page) {
+            currentPage = page;
+            loadTasks();
+        }
+
+        // 工具函数
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function formatTime(timestamp) {
+            if (!timestamp) return '-';
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleString('zh-CN');
+        }
+
+        function formatCountdown(timestamp) {
+            if (!timestamp) return '-';
+            const now = Math.floor(Date.now() / 1000);
+            const diff = timestamp - now;
+            
+            if (diff <= 0) {
+                return '即将执行';
+            }
+            
+            const days = Math.floor(diff / 86400);
+            const hours = Math.floor((diff % 86400) / 3600);
+            const minutes = Math.floor((diff % 3600) / 60);
+            const seconds = diff % 60;
+            
+            if (days > 0) {
+                return `${days}天${hours}时${minutes}分`;
+            } else if (hours > 0) {
+                return `${hours}时${minutes}分${seconds}秒`;
+            } else if (minutes > 0) {
+                return `${minutes}分${seconds}秒`;
+            } else {
+                return `${seconds}秒`;
+            }
+        }
+
+        function updateCountdowns() {
+            document.querySelectorAll('.next-exec-time').forEach(el => {
+                const timestamp = parseInt(el.dataset.time);
+                if (timestamp) {
+                    el.textContent = formatCountdown(timestamp);
+                }
+            });
+        }
+
+        function formatDateTimeLocal(timestamp) {
+            if (!timestamp) return '';
+            const date = new Date(timestamp * 1000);
+            return date.toISOString().slice(0, 16);
+        }
+
+        function getStatusClass(status) {
+            switch (status) {
+                case 1: return 'active';
+                case 2: return 'paused';
+                case 3: return 'finished';
+                default: return 'active';
+            }
+        }
+
+        function parseHeaders(str) {
+            if (!str || !str.trim()) return {};
+            try {
+                return JSON.parse(str);
+            } catch {
+                return {};
+            }
+        }
+    </script>
+</body>
+</html>
