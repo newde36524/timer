@@ -643,7 +643,6 @@
                     <option value="">全部类型</option>
                     <option value="1">一次性任务</option>
                     <option value="2">间隔执行</option>
-                    <option value="3">定时执行</option>
                 </select>
             </div>
             <button class="btn btn-primary" onclick="openCreateModal()">
@@ -680,10 +679,6 @@
                         <div class="type-option" data-type="2" onclick="selectType(2)">
                             <div class="type-option-label">间隔执行</div>
                             <div class="type-option-desc">按固定间隔重复</div>
-                        </div>
-                        <div class="type-option" data-type="3" onclick="selectType(3)">
-                            <div class="type-option-label">定时执行</div>
-                            <div class="type-option-desc">指定时间点间隔</div>
                         </div>
                     </div>
                     <input type="hidden" id="taskType" value="1">
@@ -762,6 +757,7 @@
                 </div>
             </div>
             <div id="logsContent"></div>
+            <div id="logsPagination" class="pagination"></div>
         </div>
     </div>
 
@@ -782,6 +778,9 @@
         let editingKey = null;
         let logsRefreshTimer = null;
         let currentLogsKey = null;
+        let currentLogsPage = 1;
+        let cachedTasks = null; // 缓存任务列表
+        let cachedLogs = null; // 缓存日志列表
         let authToken = localStorage.getItem('token');
         let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
 
@@ -956,11 +955,34 @@
                 let tasks = data.data || [];
                 tasks.sort((a, b) => a.next_exec_time - b.next_exec_time);
 
-                renderTasks(tasks);
-                renderPagination(data.pagination || {});
+                // 比较新旧数据，只有变化时才重新渲染
+                if (!cachedTasks || tasksChanged(cachedTasks, tasks)) {
+                    cachedTasks = tasks;
+                    renderTasks(tasks);
+                    renderPagination(data.pagination || {});
+                }
             } catch (err) {
                 console.error('Failed to load tasks:', err);
             }
+        }
+
+        // 比较任务列表是否有变化
+        function tasksChanged(oldTasks, newTasks) {
+            if (oldTasks.length !== newTasks.length) return true;
+            
+            for (let i = 0; i < oldTasks.length; i++) {
+                const oldTask = oldTasks[i];
+                const newTask = newTasks[i];
+                // 比较关键字段
+                if (oldTask.key !== newTask.key ||
+                    oldTask.status !== newTask.status ||
+                    oldTask.exec_count !== newTask.exec_count ||
+                    oldTask.name !== newTask.name ||
+                    oldTask.http_url !== newTask.http_url) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // 渲染任务列表
@@ -993,7 +1015,8 @@
                         </div>
                         <div class="task-info">
                             <div class="task-info-label">下次执行</div>
-                            <div class="task-info-value next-exec-time" data-time="${task.next_exec_time}">${formatCountdown(task.next_exec_time)}</div>
+                            <div class="task-info-value next-exec-time" data-time="${task.next_exec_time}" title="${formatTime(task.next_exec_time)}">${formatCountdown(task.next_exec_time)}</div>
+                            <div class="task-info-label" style="font-size: 0.65rem; margin-top: 2px;">${formatTime(task.next_exec_time)}</div>
                         </div>
                         <div class="task-info">
                             <div class="task-info-label">已执行</div>
@@ -1060,6 +1083,15 @@
             document.getElementById('taskType').value = '1';
             selectType(1);
             await generateKey();
+            // 设置首次执行时间默认为当前时间（使用本地时区）
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const localDateTime = `${year}-${month}-${day}T${hours}:${minutes}`;
+            document.getElementById('startTime').value = localDateTime;
             document.getElementById('taskModal').classList.add('active');
         }
 
@@ -1229,6 +1261,7 @@
         // 查看日志
         async function viewLogs(key) {
             currentLogsKey = key;
+            currentLogsPage = 1;
             document.getElementById('logsTaskName').textContent = key;
             document.getElementById('logsModal').classList.add('active');
             document.getElementById('logsAutoRefresh').style.display = 'inline';
@@ -1246,34 +1279,81 @@
             if (!currentLogsKey) return;
             
             try {
-                const res = await authFetch(`${API_BASE}/tasks/${currentLogsKey}/logs`);
+                const res = await authFetch(`${API_BASE}/tasks/${currentLogsKey}/logs?page=${currentLogsPage}&page_size=5`);
                 if (!res) return;
                 const data = await res.json();
 
                 const container = document.getElementById('logsContent');
                 if (!data.data || data.data.length === 0) {
                     container.innerHTML = '<div class="empty-state">暂无执行日志</div>';
+                    document.getElementById('logsPagination').innerHTML = '';
+                    cachedLogs = null;
                 } else {
-                    container.innerHTML = data.data.map((log, index) => `
-                        <div class="task-card" style="margin-bottom: 0.5rem;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span>${formatTime(log.exec_time)}</span>
-                                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                    <span class="task-status status-${log.success ? 'active' : 'paused'}">${log.success ? '成功' : '失败'}</span>
-                                    <button class="btn btn-sm btn-secondary" onclick="showLogDetail(${index})">详情</button>
+                    // 比较新旧数据，只有变化时才重新渲染
+                    if (!cachedLogs || logsChanged(cachedLogs, data.data)) {
+                        cachedLogs = data.data;
+                        container.innerHTML = data.data.map((log, index) => `
+                            <div class="task-card" style="margin-bottom: 0.5rem;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                    <span>${formatTime(log.exec_time)}</span>
+                                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <span class="task-status status-${log.success ? 'active' : 'paused'}">${log.success ? '成功' : '失败'}</span>
+                                        <button class="btn btn-sm btn-secondary" onclick="showLogDetail(${index})">详情</button>
+                                    </div>
+                                </div>
+                                <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                                    状态码: ${log.status_code} | 重试: ${log.retry_count}次 | ${escapeHtml(truncateText(log.message, 50))}
                                 </div>
                             </div>
-                            <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                                状态码: ${log.status_code} | 重试: ${log.retry_count}次 | ${escapeHtml(truncateText(log.message, 50))}
-                            </div>
-                        </div>
-                    `).join('');
-                    
-                    window.currentLogs = data.data;
+                        `).join('');
+                        
+                        window.currentLogs = data.data;
+                        renderLogsPagination(data.pagination || {});
+                    }
                 }
             } catch (err) {
                 console.error('刷新日志失败:', err);
             }
+        }
+
+        // 比较日志列表是否有变化
+        function logsChanged(oldLogs, newLogs) {
+            if (oldLogs.length !== newLogs.length) return true;
+            
+            for (let i = 0; i < oldLogs.length; i++) {
+                const oldLog = oldLogs[i];
+                const newLog = newLogs[i];
+                if (oldLog.id !== newLog.id ||
+                    oldLog.success !== newLog.success ||
+                    oldLog.status_code !== newLog.status_code ||
+                    oldLog.exec_time !== newLog.exec_time) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // 渲染日志分页
+        function renderLogsPagination(pagination) {
+            const container = document.getElementById('logsPagination');
+            const { page, total_page } = pagination;
+
+            if (!total_page || total_page <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+
+            let html = '';
+            for (let i = 1; i <= total_page; i++) {
+                html += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="goToLogsPage(${i})">${i}</button>`;
+            }
+            container.innerHTML = html;
+        }
+
+        // 跳转日志页面
+        function goToLogsPage(page) {
+            currentLogsPage = page;
+            refreshLogs();
         }
 
         // 截断文本
@@ -1310,7 +1390,7 @@
                     </div>
                 </div>
                 <div style="margin-bottom: 0.5rem; color: var(--text-secondary);">执行结果：</div>
-                <div style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; word-break: break-all; white-space: pre-wrap; max-height: 300px; overflow-y: auto;">
+                <div style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; word-break: break-all; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">
 ${escapeHtml(log.message) || '无'}
                 </div>
             `;
@@ -1348,7 +1428,7 @@ ${escapeHtml(log.message) || '无'}
         function formatTime(timestamp) {
             if (!timestamp) return '-';
             const date = new Date(timestamp * 1000);
-            return date.toLocaleString('zh-CN');
+            return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
         }
 
         function formatCountdown(timestamp) {
@@ -1388,7 +1468,11 @@ ${escapeHtml(log.message) || '无'}
         function formatDateTimeLocal(timestamp) {
             if (!timestamp) return '';
             const date = new Date(timestamp * 1000);
-            return date.toISOString().slice(0, 16);
+            // 使用中国时区格式化为 YYYY-MM-DDTHH:mm 格式
+            const options = { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+            const parts = new Intl.DateTimeFormat('zh-CN', options).formatToParts(date);
+            const getPart = (type) => parts.find(p => p.type === type)?.value || '';
+            return `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}`;
         }
 
         function getStatusClass(status) {

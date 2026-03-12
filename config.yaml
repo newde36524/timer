@@ -2,6 +2,7 @@
 server:
   port: 8080
   mode: release  # debug, release, test
+  timezone: Asia/Shanghai  # 时区设置，默认中国时区
 
 # 数据库配置
 database:

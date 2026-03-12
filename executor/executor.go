@@ -67,10 +67,10 @@ func (e *Executor) Execute(task *models.TimerTask) {
 		log.Message = fmt.Sprintf("请求错误: %s", lastErr.Error())
 	} else if !success {
 		// 记录错误响应
-		log.Message = fmt.Sprintf("HTTP %d - %s", statusCode, truncateString(responseBody, 500))
+		log.Message = fmt.Sprintf("HTTP %d - %s", statusCode, truncateString(responseBody, 5000))
 	} else {
 		// 记录成功响应
-		log.Message = fmt.Sprintf("成功 - %s", truncateString(responseBody, 500))
+		log.Message = fmt.Sprintf("成功 - %s", truncateString(responseBody, 5000))
 	}
 
 	database.CreateExecuteLog(log)
@@ -196,9 +196,9 @@ func (e *Executor) ExecuteWithCallback(task *models.TimerTask, callback func(*mo
 	if lastErr != nil {
 		log.Message = fmt.Sprintf("请求错误: %s", lastErr.Error())
 	} else if !success {
-		log.Message = fmt.Sprintf("HTTP %d - %s", statusCode, truncateString(responseBody, 500))
+		log.Message = fmt.Sprintf("HTTP %d - %s", statusCode, truncateString(responseBody, 5000))
 	} else {
-		log.Message = fmt.Sprintf("成功 - %s", truncateString(responseBody, 500))
+		log.Message = fmt.Sprintf("成功 - %s", truncateString(responseBody, 5000))
 	}
 
 	database.CreateExecuteLog(log)

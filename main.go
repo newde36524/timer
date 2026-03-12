@@ -26,6 +26,17 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// 设置时区
+	if cfg.Server.Timezone != "" {
+		loc, err := time.LoadLocation(cfg.Server.Timezone)
+		if err != nil {
+			log.Printf("Warning: Failed to load timezone %s: %v, using local timezone", cfg.Server.Timezone, err)
+		} else {
+			time.Local = loc
+			log.Printf("Timezone set to %s", cfg.Server.Timezone)
+		}
+	}
+
 	// 初始化数据库
 	if err := database.Init(&database.Config{
 		Path:     cfg.Database.Path,

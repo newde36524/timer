@@ -3,16 +3,14 @@ package models
 import (
 	"database/sql/driver"
 	"encoding/json"
-	"time"
 )
 
 // TaskType 任务类型
 type TaskType int
 
 const (
-	TaskTypeOnce      TaskType = 1 // 指定时间点执行一次
-	TaskTypeInterval  TaskType = 2 // 间隔执行
-	TaskTypeCron      TaskType = 3 // 指定时间点间隔执行
+	TaskTypeOnce     TaskType = 1 // 指定时间点执行一次
+	TaskTypeInterval TaskType = 2 // 间隔执行
 )
 
 // TaskStatus 任务状态
@@ -122,7 +120,7 @@ func (TaskExecuteLog) TableName() string {
 type TaskCreateRequest struct {
 	Name          string            `json:"name" binding:"required"`
 	Key           string            `json:"key" binding:"required"`
-	Type          TaskType          `json:"type" binding:"required,oneof=1 2 3"`
+	Type          TaskType          `json:"type" binding:"required,oneof=1 2"`
 	StartTime     int64             `json:"start_time" binding:"required"`           // Unix 时间戳
 	Interval      int64             `json:"interval"`                                // 秒
 	MaxRetryCount int               `json:"max_retry_count"`                         // 默认 3
@@ -180,8 +178,6 @@ func (t *TimerTask) ToResponse() *TaskResponse {
 		typeDesc = "指定时间点执行一次"
 	case TaskTypeInterval:
 		typeDesc = "间隔执行"
-	case TaskTypeCron:
-		typeDesc = "指定时间点间隔执行"
 	}
 
 	statusDesc := ""
@@ -220,8 +216,6 @@ func (t *TimerTask) ToResponse() *TaskResponse {
 
 // CalculateNextExecTime 计算下次执行时间
 func (t *TimerTask) CalculateNextExecTime() int64 {
-	now := time.Now().Unix()
-	
 	switch t.Type {
 	case TaskTypeOnce:
 		// 一次性任务，返回开始时间
@@ -235,18 +229,6 @@ func (t *TimerTask) CalculateNextExecTime() int64 {
 			return t.StartTime
 		}
 		return t.LastExecTime + t.Interval
-	case TaskTypeCron:
-		// 指定时间点间隔执行
-		if t.Interval <= 0 {
-			return t.StartTime
-		}
-		if now < t.StartTime {
-			return t.StartTime
-		}
-		// 计算下一个执行时间点
-		elapsed := now - t.StartTime
-		intervals := elapsed / t.Interval
-		return t.StartTime + (intervals+1)*t.Interval
 	}
 	
 	return t.StartTime

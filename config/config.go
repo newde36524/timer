@@ -15,8 +15,9 @@ type Config struct {
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
-	Port int    `mapstructure:"port"`
-	Mode string `mapstructure:"mode"` // debug, release, test
+	Port     int    `mapstructure:"port"`
+	Mode     string `mapstructure:"mode"`     // debug, release, test
+	Timezone string `mapstructure:"timezone"` // 时区设置
 }
 
 // DatabaseConfig 数据库配置
@@ -74,6 +75,7 @@ func setDefaults(v *viper.Viper) {
 	// 服务器配置
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.mode", "release")
+	v.SetDefault("server.timezone", "Asia/Shanghai")
 
 	// 数据库配置
 	v.SetDefault("database.path", "/data/timer.db")

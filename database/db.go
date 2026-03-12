@@ -107,14 +107,59 @@ func SaveTask(task *models.TimerTask) error {
 	return DB.Save(task).Error
 }
 
-// CreateExecuteLog 创建执行日志（带磁盘容量检查）
+// 每个任务保留的最大日志数量
+const maxLogsPerTask = 100
+
+// CreateExecuteLog 创建执行日志（带磁盘容量检查和日志数量限制）
 func CreateExecuteLog(log *models.TaskExecuteLog) error {
 	// 检查磁盘容量
 	if !checkDiskSpace() {
 		// 磁盘空间不足，清理最早的日志
 		cleanupOldestLogs(100) // 每次清理100条
 	}
-	return DB.Create(log).Error
+	
+	// 创建日志
+	if err := DB.Create(log).Error; err != nil {
+		return err
+	}
+	
+	// 检查该任务的日志数量，超过限制则删除最旧的
+	cleanupTaskLogs(log.TaskKey, maxLogsPerTask)
+	
+	return nil
+}
+
+// cleanupTaskLogs 清理指定任务的旧日志，只保留最新的 count 条
+func cleanupTaskLogs(taskKey string, maxCount int) error {
+	// 统计该任务的日志总数
+	var total int64
+	if err := DB.Model(&models.TaskExecuteLog{}).Where("task_key = ?", taskKey).Count(&total).Error; err != nil {
+		return err
+	}
+	
+	// 如果不超过限制，无需清理
+	if total <= int64(maxCount) {
+		return nil
+	}
+	
+	// 计算需要删除的数量
+	deleteCount := total - int64(maxCount)
+	
+	// 获取需要删除的日志 ID（最旧的 deleteCount 条）
+	var ids []uint
+	if err := DB.Model(&models.TaskExecuteLog{}).
+		Where("task_key = ?", taskKey).
+		Order("exec_time ASC").
+		Limit(int(deleteCount)).
+		Pluck("id", &ids).Error; err != nil {
+		return err
+	}
+	
+	if len(ids) == 0 {
+		return nil
+	}
+	
+	return DB.Where("id IN ?", ids).Delete(&models.TaskExecuteLog{}).Error
 }
 
 // GetTaskLogs 获取任务执行日志
@@ -126,6 +171,27 @@ func GetTaskLogs(taskKey string, limit int) ([]*models.TaskExecuteLog, error) {
 	}
 	err := query.Find(&logs).Error
 	return logs, err
+}
+
+// GetTaskLogsPaged 分页获取任务执行日志（倒序）
+func GetTaskLogsPaged(taskKey string, page, pageSize int) ([]*models.TaskExecuteLog, int64, error) {
+	var logs []*models.TaskExecuteLog
+	var total int64
+
+	// 统计总数
+	if err := DB.Model(&models.TaskExecuteLog{}).Where("task_key = ?", taskKey).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 分页查询（倒序）
+	offset := (page - 1) * pageSize
+	err := DB.Where("task_key = ?", taskKey).
+		Order("exec_time DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&logs).Error
+
+	return logs, total, err
 }
 
 // CleanupOldLogs 清理旧日志

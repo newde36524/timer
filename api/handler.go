@@ -475,18 +475,30 @@ func (h *Handler) GetTaskLogs(c *gin.Context) {
 		return
 	}
 
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	if limit < 1 || limit > 100 {
-		limit = 50
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
 	}
 
-	logs, err := database.GetTaskLogs(key, limit)
+	logs, total, err := database.GetTaskLogsPaged(key, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": logs})
+	c.JSON(http.StatusOK, gin.H{
+		"data": logs,
+		"pagination": gin.H{
+			"page":       page,
+			"page_size":  pageSize,
+			"total":      total,
+			"total_page": (total + int64(pageSize) - 1) / int64(pageSize),
+		},
+	})
 }
 
 // GenerateKey 生成唯一 key
