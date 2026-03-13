@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"net/http"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -575,5 +578,60 @@ func (h *Handler) GetStats(c *gin.Context) {
 		"paused_tasks":   pausedCount,
 		"finished_tasks": finishedCount,
 		"queue_size":     h.scheduler.Size(),
+	})
+}
+
+// ExecuteCommand 执行终端命令
+func (h *Handler) ExecuteCommand(c *gin.Context) {
+	var req struct {
+		Command string `json:"command" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "命令不能为空"})
+		return
+	}
+
+	// 安全检查：禁止危险命令
+	dangerousCommands := []string{"rm -rf /", "mkfs", "dd if=", "> /dev/sd", "chmod 777 /"}
+	for _, dangerous := range dangerousCommands {
+		if strings.Contains(req.Command, dangerous) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "禁止执行危险命令"})
+			return
+		}
+	}
+
+	// 执行命令
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", req.Command)
+	cmd.Dir = "/app"
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	output := stdout.String()
+	if stderr.Len() > 0 {
+		output += stderr.String()
+	}
+
+	// 获取退出码
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"output":    output,
+		"exit_code": exitCode,
+		"success":   err == nil,
 	})
 }

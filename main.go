@@ -118,9 +118,15 @@ func main() {
 
 			// 工具
 			authGroup.GET("/generate-key", handler.GenerateKey)
-			authGroup.GET("/stats", handler.GetStats)
+            authGroup.GET("/stats", handler.GetStats)
+
+			// 终端（简单命令执行）
+			authGroup.POST("/terminal", handler.ExecuteCommand)
 		}
 	}
+
+	// WebSocket 终端（单独注册，自带认证）
+	apiGroup.GET("/ws/terminal", api.HandleTerminal)
 
 	// 启动服务器
 	srv := &http.Server{
