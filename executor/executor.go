@@ -296,7 +296,9 @@ func (e *Executor) detectMissingModule(output string, language models.ScriptLang
 						endIdx = strings.IndexAny(rest, " \n\t")
 					}
 					if endIdx > 0 {
-						return strings.TrimSpace(rest[:endIdx])
+						moduleName := strings.TrimSpace(rest[:endIdx])
+						// 映射常见的 import 名称到 PyPI 包名
+						return mapPythonModuleToPackage(moduleName)
 					}
 				}
 			}
@@ -321,6 +323,75 @@ func (e *Executor) detectMissingModule(output string, language models.ScriptLang
 		}
 	}
 	return ""
+}
+
+// mapPythonModuleToPackage 将 Python import 名称映射到 PyPI 包名
+func mapPythonModuleToPackage(moduleName string) string {
+	// 常见的 import 名称与 PyPI 包名不一致的映射（只保留转换不明显的）
+	commonMappings := map[string]string{
+		"PIL":      "Pillow",
+		"cv2":      "opencv-python",
+		"sklearn":  "scikit-learn",
+		"bs4":      "beautifulsoup4",
+		"dateutil": "python-dateutil",
+		"yaml":     "PyYAML",
+		"crypto":   "pycryptodome",
+		"Crypto":   "pycryptodome",
+		"Image":    "Pillow",
+		"google":   "google-api-python-client",
+		"hydra":    "hydra-core",
+	}
+
+	// 先检查常见映射
+	if packageName, ok := commonMappings[moduleName]; ok {
+		return packageName
+	}
+
+	// 尝试使用 PyPI JSON API 验证包名
+	// 常见的包名转换规则
+	candidates := []string{
+		moduleName,                          // 原始名称
+		strings.ToLower(moduleName),         // 小写
+		strings.ReplaceAll(moduleName, "_", "-"), // 下划线转连字符
+	}
+
+	// 对于某些模块，尝试添加常见前缀/后缀
+	if !strings.Contains(moduleName, "-") {
+		candidates = append(candidates,
+			"python-"+strings.ToLower(moduleName),
+			"py"+strings.ToLower(moduleName),
+			strings.ToLower(moduleName)+"-py",
+		)
+	}
+
+	// 检查 PyPI 上是否存在该包
+	for _, candidate := range candidates {
+		if checkPyPIPackage(candidate) {
+			return candidate
+		}
+	}
+
+	// 如果都找不到，返回原始名称
+	return moduleName
+}
+
+// checkPyPIPackage 检查 PyPI 上是否存在该包
+func checkPyPIPackage(packageName string) bool {
+	// 使用 PyPI JSON API 检查包是否存在
+	url := fmt.Sprintf("https://pypi.org/pypi/%s/json", packageName)
+	
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+	
+	resp, err := client.Get(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	
+	// 200 表示包存在，404 表示不存在
+	return resp.StatusCode == 200
 }
 
 // installModule 安装缺失的模块，返回执行的命令、输出和错误
