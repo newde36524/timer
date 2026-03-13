@@ -31,6 +31,50 @@
             box-sizing: border-box;
         }
 
+        /* 自定义滚动条样式 - 滚动时显示，不滚动时隐藏 */
+        /* 全局滚动条基础样式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: transparent;
+            border-radius: 4px;
+        }
+
+        /* 滚动容器样式 */
+        .scrollable {
+            scrollbar-width: thin;
+            scrollbar-color: transparent transparent;
+        }
+
+        .scrollable:hover {
+            scrollbar-color: rgba(99, 102, 241, 0.5) transparent;
+        }
+
+        .scrollable::-webkit-scrollbar-thumb {
+            background: transparent;
+            transition: background 0.3s ease;
+        }
+
+        .scrollable:hover::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, var(--accent), #a855f7);
+        }
+
+        /* 滚动时显示滚动条 */
+        .scrollable.scrolling::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, var(--accent), #a855f7);
+        }
+
+        .scrollable.scrolling {
+            scrollbar-color: var(--accent) transparent;
+        }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: var(--bg-primary);
@@ -193,7 +237,6 @@
 
         .task-card:hover {
             border-color: var(--accent);
-            transform: translateY(-2px);
         }
 
         .task-header {
@@ -321,6 +364,7 @@
             max-width: 600px;
             max-height: 90vh;
             overflow-y: auto;
+            overflow-x: hidden;
             transform: scale(0.9);
             transition: transform 0.3s;
         }
@@ -833,7 +877,7 @@ console.log('Hello from timer!');
                     <button class="modal-close" onclick="closeLogsModal()">&times;</button>
                 </div>
             </div>
-            <div id="logsContent"></div>
+            <div id="logsContent" style="max-height: 400px; overflow-y: auto;"></div>
             <div id="logsPagination" class="pagination"></div>
         </div>
     </div>
@@ -859,7 +903,7 @@ console.log('Hello from timer!');
                     <button class="modal-close" onclick="closeTerminalModal()">&times;</button>
                 </div>
             </div>
-            <div id="terminalContainer" style="background: #0a0a0f; border-radius: 8px; padding: 8px; height: 500px;">
+            <div id="terminalContainer" style="background: #0a0a0f; border-radius: 8px; padding: 8px; height: 500px; overflow: hidden;">
             </div>
         </div>
     </div>
@@ -1619,12 +1663,12 @@ console.log('Hello from timer!');
                 </div>
                 ${log.exec_command ? `
                 <div style="margin-bottom: 0.5rem; color: var(--text-secondary);">执行命令：</div>
-                <div style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-bottom: 1rem;">
+                <div class="log-detail-content" style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-bottom: 1rem;">
 ${escapeHtml(log.exec_command)}
                 </div>
                 ` : ''}
                 <div style="margin-bottom: 0.5rem; color: var(--text-secondary);">执行结果：</div>
-                <div style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; word-break: break-all; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">
+                <div class="log-detail-content" style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; word-break: break-all; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">
 ${escapeHtml(log.message) || '无'}
                 </div>
             `;
@@ -1734,9 +1778,11 @@ ${escapeHtml(log.message) || '无'}
         let terminalDataDisposer = null;
         let terminalResizeDisposer = null;
         let terminalReconnectTimer = null;
+        let terminalManualClose = false;
 
         function openTerminalModal() {
             document.getElementById('terminalModal').classList.add('active');
+            terminalManualClose = false;
             
             // 初始化终端
             if (!terminal) {
@@ -1749,6 +1795,9 @@ ${escapeHtml(log.message) || '无'}
 
         function closeTerminalModal() {
             document.getElementById('terminalModal').classList.remove('active');
+            
+            // 设置标志，防止自动重连
+            terminalManualClose = true;
             
             // 清除重连定时器
             if (terminalReconnectTimer) {
@@ -1871,12 +1920,17 @@ ${escapeHtml(log.message) || '无'}
                 statusEl.textContent = '已断开';
                 statusEl.style.color = '#ef4444';
                 
+                // 如果是手动关闭，不重连
+                if (terminalManualClose) {
+                    return;
+                }
+                
                 terminal.writeln('');
                 terminal.writeln('\x1b[33m连接已断开，3秒后自动重连...\x1b[0m');
                 
                 // 自动重连
                 terminalReconnectTimer = setTimeout(() => {
-                    if (document.getElementById('terminalModal').classList.contains('active')) {
+                    if (document.getElementById('terminalModal').classList.contains('active') && !terminalManualClose) {
                         terminal.writeln('\x1b[90m正在重新连接...\x1b[0m');
                         connectTerminal();
                     }
@@ -1903,6 +1957,42 @@ ${escapeHtml(log.message) || '无'}
                 }
             });
         }
+
+        // ========== 滚动条显示/隐藏逻辑 ==========
+        const scrollHideTimers = new WeakMap();
+
+        function initScrollbars() {
+            const containers = document.querySelectorAll('.modal, #logsContent, .log-detail-content, #terminalContainer');
+            
+            containers.forEach(container => {
+                container.classList.add('scrollable');
+                
+                container.addEventListener('scroll', () => {
+                    container.classList.add('scrolling');
+                    
+                    if (scrollHideTimers.has(container)) {
+                        clearTimeout(scrollHideTimers.get(container));
+                    }
+                    
+                    const timer = setTimeout(() => {
+                        container.classList.remove('scrolling');
+                    }, 1500);
+                    scrollHideTimers.set(container, timer);
+                }, { passive: true });
+            });
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(initScrollbars, 100);
+        });
+
+        // 模态框打开时重新初始化
+        const _openTerminalModal = openTerminalModal;
+        window.openTerminalModal = function() {
+            _openTerminalModal();
+            setTimeout(initScrollbars, 100);
+        };
     </script>
 </body>
 </html>
