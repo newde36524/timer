@@ -22,6 +22,23 @@ const (
 	TaskStatusFinished TaskStatus = 3 // 已完成
 )
 
+// ExecMode 执行模式
+type ExecMode int
+
+const (
+	ExecModeHTTP   ExecMode = 1 // HTTP 请求
+	ExecModeScript ExecMode = 2 // 脚本执行
+)
+
+// ScriptLanguage 脚本语言
+type ScriptLanguage string
+
+const (
+	ScriptLanguageJS     ScriptLanguage = "javascript"
+	ScriptLanguagePython ScriptLanguage = "python"
+	ScriptLanguageShell  ScriptLanguage = "shell"
+)
+
 // HTTPMethod HTTP 请求方法
 type HTTPMethod string
 
@@ -73,26 +90,29 @@ func (User) TableName() string {
 
 // TimerTask 定时任务模型
 type TimerTask struct {
-	ID             uint       `gorm:"primaryKey" json:"id"`
-	UserID         uint       `gorm:"index;not null" json:"user_id"`
-	Name           string     `gorm:"type:varchar(255);not null" json:"name"`
-	Key            string     `gorm:"type:varchar(255);uniqueIndex;not null" json:"key"`
-	Type           TaskType   `gorm:"not null;default:1" json:"type"`
-	Status         TaskStatus `gorm:"not null;default:1" json:"status"`
-	CreateTime     int64      `gorm:"not null" json:"create_time"`
-	StartTime      int64      `gorm:"not null" json:"start_time"`
-	NextExecTime   int64      `gorm:"index;not null" json:"next_exec_time"`
-	LastExecTime   int64      `gorm:"not null;default:0" json:"last_exec_time"`
-	Interval       int64      `gorm:"not null;default:0" json:"interval"`
-	MaxRetryCount  int        `gorm:"not null;default:3" json:"max_retry_count"`
-	ExecCount      int        `gorm:"not null;default:0" json:"exec_count"`
-	MaxExecCount   int        `gorm:"not null;default:0" json:"max_exec_count"`
-	HTTPMethod     HTTPMethod `gorm:"type:varchar(10);not null;default:'POST'" json:"http_method"`
-	HTTPURL        string     `gorm:"type:varchar(500);not null" json:"http_url"`
-	HTTPHeaders    HTTPHeaders `gorm:"type:text" json:"http_headers"`
-	HTTPBody       string     `gorm:"type:text" json:"http_body"`
-	Group          string     `gorm:"type:varchar(100);not null;default:'default'" json:"group"`
-	IsDeleted      int        `gorm:"not null;default:0" json:"is_deleted"`
+	ID             uint          `gorm:"primaryKey" json:"id"`
+	UserID         uint          `gorm:"index;not null" json:"user_id"`
+	Name           string        `gorm:"type:varchar(255);not null" json:"name"`
+	Key            string        `gorm:"type:varchar(255);uniqueIndex;not null" json:"key"`
+	Type           TaskType      `gorm:"not null;default:1" json:"type"`
+	Status         TaskStatus    `gorm:"not null;default:1" json:"status"`
+	ExecMode       ExecMode      `gorm:"not null;default:1" json:"exec_mode"`                // 执行模式：1=HTTP, 2=脚本
+	CreateTime     int64         `gorm:"not null" json:"create_time"`
+	StartTime      int64         `gorm:"not null" json:"start_time"`
+	NextExecTime   int64         `gorm:"index;not null" json:"next_exec_time"`
+	LastExecTime   int64         `gorm:"not null;default:0" json:"last_exec_time"`
+	Interval       int64         `gorm:"not null;default:0" json:"interval"`
+	MaxRetryCount  int           `gorm:"not null;default:3" json:"max_retry_count"`
+	ExecCount      int           `gorm:"not null;default:0" json:"exec_count"`
+	MaxExecCount   int           `gorm:"not null;default:0" json:"max_exec_count"`
+	HTTPMethod     HTTPMethod    `gorm:"type:varchar(10);not null;default:'POST'" json:"http_method"`
+	HTTPURL        string        `gorm:"type:varchar(500)" json:"http_url"`
+	HTTPHeaders    HTTPHeaders   `gorm:"type:text" json:"http_headers"`
+	HTTPBody       string        `gorm:"type:text" json:"http_body"`
+	ScriptLanguage ScriptLanguage `gorm:"type:varchar(20)" json:"script_language"`            // 脚本语言
+	ScriptCode     string        `gorm:"type:longtext" json:"script_code"`                    // 脚本代码
+	Group          string        `gorm:"type:varchar(100);not null;default:'default'" json:"group"`
+	IsDeleted      int           `gorm:"not null;default:0" json:"is_deleted"`
 }
 
 // TableName 指定表名
@@ -102,13 +122,14 @@ func (TimerTask) TableName() string {
 
 // TaskExecuteLog 任务执行日志
 type TaskExecuteLog struct {
-	ID         uint   `gorm:"primaryKey" json:"id"`
-	TaskKey    string `gorm:"type:varchar(255);index;not null" json:"task_key"`
-	ExecTime   int64  `gorm:"not null" json:"exec_time"`
-	Success    bool   `gorm:"not null" json:"success"`
-	StatusCode int    `gorm:"not null;default:0" json:"status_code"`
-	Message    string `gorm:"type:text" json:"message"`
-	RetryCount int    `gorm:"not null;default:0" json:"retry_count"`
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	TaskKey     string `gorm:"type:varchar(255);index;not null" json:"task_key"`
+	ExecTime    int64  `gorm:"not null" json:"exec_time"`
+	Success     bool   `gorm:"not null" json:"success"`
+	StatusCode  int    `gorm:"not null;default:0" json:"status_code"`
+	Message     string `gorm:"type:text" json:"message"`
+	RetryCount  int    `gorm:"not null;default:0" json:"retry_count"`
+	ExecCommand string `gorm:"type:text" json:"exec_command"` // 执行的命令
 }
 
 // TableName 指定表名
@@ -118,56 +139,65 @@ func (TaskExecuteLog) TableName() string {
 
 // TaskCreateRequest 创建任务请求
 type TaskCreateRequest struct {
-	Name          string            `json:"name" binding:"required"`
-	Key           string            `json:"key" binding:"required"`
-	Type          TaskType          `json:"type" binding:"required,oneof=1 2"`
-	StartTime     int64             `json:"start_time" binding:"required"`           // Unix 时间戳
-	Interval      int64             `json:"interval"`                                // 秒
-	MaxRetryCount int               `json:"max_retry_count"`                         // 默认 3
-	MaxExecCount  int               `json:"max_exec_count"`                          // 0 表示无限制
-	HTTPMethod    HTTPMethod        `json:"http_method" binding:"required"`
-	HTTPURL       string            `json:"http_url" binding:"required,url"`
-	HTTPHeaders   map[string]string `json:"http_headers"`
-	HTTPBody      string            `json:"http_body"`
-	Group         string            `json:"group"` // 默认 "default"
+	Name           string            `json:"name" binding:"required"`
+	Key            string            `json:"key" binding:"required"`
+	Type           TaskType          `json:"type" binding:"required,oneof=1 2"`
+	ExecMode       ExecMode          `json:"exec_mode" binding:"required,oneof=1 2"`       // 执行模式
+	StartTime      int64             `json:"start_time" binding:"required"`                // Unix 时间戳
+	Interval       int64             `json:"interval"`                                     // 秒
+	MaxRetryCount  int               `json:"max_retry_count"`                              // 默认 3
+	MaxExecCount   int               `json:"max_exec_count"`                               // 0 表示无限制
+	HTTPMethod     HTTPMethod        `json:"http_method"`
+	HTTPURL        string            `json:"http_url"`
+	HTTPHeaders    map[string]string `json:"http_headers"`
+	HTTPBody       string            `json:"http_body"`
+	ScriptLanguage ScriptLanguage    `json:"script_language"`                              // 脚本语言
+	ScriptCode     string            `json:"script_code"`                                  // 脚本代码
+	Group          string            `json:"group"`                                        // 默认 "default"
 }
 
 // TaskUpdateRequest 更新任务请求
 type TaskUpdateRequest struct {
-	Name          string            `json:"name"`
-	StartTime     int64             `json:"start_time"`
-	Interval      int64             `json:"interval"`
-	MaxRetryCount int               `json:"max_retry_count"`
-	MaxExecCount  int               `json:"max_exec_count"`
-	HTTPMethod    HTTPMethod        `json:"http_method"`
-	HTTPURL       string            `json:"http_url"`
-	HTTPHeaders   map[string]string `json:"http_headers"`
-	HTTPBody      string            `json:"http_body"`
-	Status        TaskStatus        `json:"status"`
+	Name           string            `json:"name"`
+	StartTime      int64             `json:"start_time"`
+	Interval       int64             `json:"interval"`
+	MaxRetryCount  int               `json:"max_retry_count"`
+	MaxExecCount   int               `json:"max_exec_count"`
+	HTTPMethod     HTTPMethod        `json:"http_method"`
+	HTTPURL        string            `json:"http_url"`
+	HTTPHeaders    map[string]string `json:"http_headers"`
+	HTTPBody       string            `json:"http_body"`
+	ScriptLanguage ScriptLanguage    `json:"script_language"`
+	ScriptCode     string            `json:"script_code"`
+	Status         TaskStatus        `json:"status"`
 }
 
 // TaskResponse 任务响应
 type TaskResponse struct {
-	ID            uint             `json:"id"`
-	Name          string           `json:"name"`
-	Key           string           `json:"key"`
-	Type          TaskType         `json:"type"`
-	TypeDesc      string           `json:"type_desc"`
-	Status        TaskStatus       `json:"status"`
-	StatusDesc    string           `json:"status_desc"`
-	CreateTime    int64            `json:"create_time"`
-	StartTime     int64            `json:"start_time"`
-	NextExecTime  int64            `json:"next_exec_time"`
-	LastExecTime  int64            `json:"last_exec_time"`
-	Interval      int64            `json:"interval"`
-	MaxRetryCount int              `json:"max_retry_count"`
-	ExecCount     int              `json:"exec_count"`
-	MaxExecCount  int              `json:"max_exec_count"`
-	HTTPMethod    HTTPMethod       `json:"http_method"`
-	HTTPURL       string           `json:"http_url"`
-	HTTPHeaders   HTTPHeaders      `json:"http_headers"`
-	HTTPBody      string           `json:"http_body"`
-	Group         string           `json:"group"`
+	ID             uint            `json:"id"`
+	Name           string          `json:"name"`
+	Key            string          `json:"key"`
+	Type           TaskType        `json:"type"`
+	TypeDesc       string          `json:"type_desc"`
+	Status         TaskStatus      `json:"status"`
+	StatusDesc     string          `json:"status_desc"`
+	ExecMode       ExecMode        `json:"exec_mode"`
+	ExecModeDesc   string          `json:"exec_mode_desc"`
+	CreateTime     int64           `json:"create_time"`
+	StartTime      int64           `json:"start_time"`
+	NextExecTime   int64           `json:"next_exec_time"`
+	LastExecTime   int64           `json:"last_exec_time"`
+	Interval       int64           `json:"interval"`
+	MaxRetryCount  int             `json:"max_retry_count"`
+	ExecCount      int             `json:"exec_count"`
+	MaxExecCount   int             `json:"max_exec_count"`
+	HTTPMethod     HTTPMethod      `json:"http_method"`
+	HTTPURL        string          `json:"http_url"`
+	HTTPHeaders    HTTPHeaders     `json:"http_headers"`
+	HTTPBody       string          `json:"http_body"`
+	ScriptLanguage ScriptLanguage  `json:"script_language"`
+	ScriptCode     string          `json:"script_code"`
+	Group          string          `json:"group"`
 }
 
 // ToResponse 转换为响应格式
@@ -190,27 +220,39 @@ func (t *TimerTask) ToResponse() *TaskResponse {
 		statusDesc = "已完成"
 	}
 
+	execModeDesc := ""
+	switch t.ExecMode {
+	case ExecModeHTTP:
+		execModeDesc = "HTTP 请求"
+	case ExecModeScript:
+		execModeDesc = "脚本执行"
+	}
+
 	return &TaskResponse{
-		ID:            t.ID,
-		Name:          t.Name,
-		Key:           t.Key,
-		Type:          t.Type,
-		TypeDesc:      typeDesc,
-		Status:        t.Status,
-		StatusDesc:    statusDesc,
-		CreateTime:    t.CreateTime,
-		StartTime:     t.StartTime,
-		NextExecTime:  t.NextExecTime,
-		LastExecTime:  t.LastExecTime,
-		Interval:      t.Interval,
-		MaxRetryCount: t.MaxRetryCount,
-		ExecCount:     t.ExecCount,
-		MaxExecCount:  t.MaxExecCount,
-		HTTPMethod:    t.HTTPMethod,
-		HTTPURL:       t.HTTPURL,
-		HTTPHeaders:   t.HTTPHeaders,
-		HTTPBody:      t.HTTPBody,
-		Group:         t.Group,
+		ID:             t.ID,
+		Name:           t.Name,
+		Key:            t.Key,
+		Type:           t.Type,
+		TypeDesc:       typeDesc,
+		Status:         t.Status,
+		StatusDesc:     statusDesc,
+		ExecMode:       t.ExecMode,
+		ExecModeDesc:   execModeDesc,
+		CreateTime:     t.CreateTime,
+		StartTime:      t.StartTime,
+		NextExecTime:   t.NextExecTime,
+		LastExecTime:   t.LastExecTime,
+		Interval:       t.Interval,
+		MaxRetryCount:  t.MaxRetryCount,
+		ExecCount:      t.ExecCount,
+		MaxExecCount:   t.MaxExecCount,
+		HTTPMethod:     t.HTTPMethod,
+		HTTPURL:        t.HTTPURL,
+		HTTPHeaders:    t.HTTPHeaders,
+		HTTPBody:       t.HTTPBody,
+		ScriptLanguage: t.ScriptLanguage,
+		ScriptCode:     t.ScriptCode,
+		Group:          t.Group,
 	}
 }
 

@@ -266,6 +266,22 @@
             word-break: break-all;
         }
 
+        .exec-mode-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .exec-mode-badge.script {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #00d4ff;
+            border: 1px solid #00d4ff33;
+        }
+
         .task-actions {
             display: flex;
             gap: 0.5rem;
@@ -687,6 +703,21 @@
                     <input type="hidden" id="taskType" value="1">
                 </div>
 
+                <div class="form-group">
+                    <label class="form-label">执行模式</label>
+                    <div class="type-selector">
+                        <div class="type-option active" data-mode="1" onclick="selectExecMode(1)">
+                            <div class="type-option-label">HTTP 请求</div>
+                            <div class="type-option-desc">发送 HTTP 请求</div>
+                        </div>
+                        <div class="type-option" data-mode="2" onclick="selectExecMode(2)">
+                            <div class="type-option-label">脚本执行</div>
+                            <div class="type-option-desc">执行 JS/Python 代码</div>
+                        </div>
+                    </div>
+                    <input type="hidden" id="execMode" value="1">
+                </div>
+
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">首次执行时间</label>
@@ -709,36 +740,66 @@
                     </div>
                 </div>
 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">HTTP 方法</label>
-                        <select class="form-input" id="httpMethod">
-                            <option value="GET">GET</option>
-                            <option value="POST" selected>POST</option>
-                            <option value="PUT">PUT</option>
-                            <option value="DELETE">DELETE</option>
-                            <option value="PATCH">PATCH</option>
-                        </select>
+                <!-- HTTP 请求配置 -->
+                <div id="httpConfig">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">HTTP 方法</label>
+                            <select class="form-input" id="httpMethod">
+                                <option value="GET">GET</option>
+                                <option value="POST" selected>POST</option>
+                                <option value="PUT">PUT</option>
+                                <option value="DELETE">DELETE</option>
+                                <option value="PATCH">PATCH</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">任务分组</label>
+                            <input type="text" class="form-input" id="taskGroup" value="default">
+                        </div>
                     </div>
+
                     <div class="form-group">
-                        <label class="form-label">任务分组</label>
-                        <input type="text" class="form-input" id="taskGroup" value="default">
+                        <label class="form-label">请求 URL</label>
+                        <input type="url" class="form-input" id="httpUrl" placeholder="https://example.com/api">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">请求头（JSON 格式）</label>
+                        <textarea class="form-input" id="httpHeaders" placeholder='{"Content-Type": "application/json"}'></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">请求体</label>
+                        <textarea class="form-input" id="httpBody" placeholder='{"key": "value"}'></textarea>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">请求 URL</label>
-                    <input type="url" class="form-input" id="httpUrl" required placeholder="https://example.com/api">
-                </div>
+                <!-- 脚本执行配置 -->
+                <div id="scriptConfig" style="display: none;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">脚本语言</label>
+                            <select class="form-input" id="scriptLanguage">
+                                <option value="javascript">JavaScript (Node.js)</option>
+                                <option value="python">Python 3</option>
+                                <option value="shell">Shell (Bash)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">任务分组</label>
+                            <input type="text" class="form-input" id="taskGroupScript" value="default">
+                        </div>
+                    </div>
 
-                <div class="form-group">
-                    <label class="form-label">请求头（JSON 格式）</label>
-                    <textarea class="form-input" id="httpHeaders" placeholder='{"Content-Type": "application/json"}'></textarea>
-                </div>
+                    <div class="form-group">
+                        <label class="form-label">脚本代码</label>
+                        <textarea class="form-input" id="scriptCode" style="min-height: 200px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem;" placeholder="// JavaScript 示例
+console.log('Hello from timer!');
 
-                <div class="form-group">
-                    <label class="form-label">请求体</label>
-                    <textarea class="form-input" id="httpBody" placeholder='{"key": "value"}'></textarea>
+// Python 示例
+# print('Hello from timer!')"></textarea>
+                    </div>
                 </div>
 
                 <div class="form-actions">
@@ -1002,7 +1063,32 @@
                 return;
             }
 
-            container.innerHTML = tasks.map(task => `
+            container.innerHTML = tasks.map(task => {
+                // 根据执行模式显示不同的信息
+                let execInfo = '';
+                if (task.exec_mode === 2) {
+                    // 脚本执行模式
+                    let langIcon, langName;
+                    switch (task.script_language) {
+                        case 'python':
+                            langIcon = '🐍';
+                            langName = 'Python';
+                            break;
+                        case 'shell':
+                            langIcon = '🐚';
+                            langName = 'Shell';
+                            break;
+                        default:
+                            langIcon = '📜';
+                            langName = 'JavaScript';
+                    }
+                    execInfo = `<span class="exec-mode-badge script">${langIcon} ${langName}</span>`;
+                } else {
+                    // HTTP 请求模式
+                    execInfo = `<strong>${task.http_method}</strong> ${escapeHtml(task.http_url || '')}`;
+                }
+                
+                return `
                 <div class="task-card" data-next-exec="${task.next_exec_time}">
                     <div class="task-header">
                         <div>
@@ -1025,16 +1111,13 @@
                             <div class="task-info-label">已执行</div>
                             <div class="task-info-value">${task.exec_count}次</div>
                         </div>
-                        <div class="task-info">
-                            <div class="task-info-label">重试次数</div>
-                            <div class="task-info-value">${task.max_retry_count}次</div>
-                        </div>
                     </div>
                     <div class="task-url">
-                        <strong>${task.http_method}</strong> ${escapeHtml(task.http_url)}
+                        ${execInfo}
                     </div>
                     <div class="task-actions">
                         <button class="btn btn-sm btn-secondary" onclick="viewLogs('${task.key}')">日志</button>
+                        <button class="btn btn-sm btn-primary" onclick="retryTask('${task.key}')">重试</button>
                         ${task.status === 1 ? 
                             `<button class="btn btn-sm btn-warning" onclick="pauseTask('${task.key}')">暂停</button>` :
                             task.status === 2 ? 
@@ -1044,7 +1127,7 @@
                         <button class="btn btn-sm btn-danger" onclick="deleteTask('${task.key}')">删除</button>
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         // 渲染分页
@@ -1151,7 +1234,7 @@
 
         // 选择任务类型
         function selectType(type) {
-            document.querySelectorAll('.type-option').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.type-option[data-type]').forEach(el => el.classList.remove('active'));
             document.querySelector(`.type-option[data-type="${type}"]`).classList.add('active');
             document.getElementById('taskType').value = type;
 
@@ -1164,6 +1247,24 @@
             } else {
                 intervalGroup.style.display = 'block';
                 maxExecGroup.style.display = 'block';
+            }
+        }
+
+        // 选择执行模式
+        function selectExecMode(mode) {
+            document.querySelectorAll('.type-option[data-mode]').forEach(el => el.classList.remove('active'));
+            document.querySelector(`.type-option[data-mode="${mode}"]`).classList.add('active');
+            document.getElementById('execMode').value = mode;
+
+            const httpConfig = document.getElementById('httpConfig');
+            const scriptConfig = document.getElementById('scriptConfig');
+
+            if (mode === 1) {
+                httpConfig.style.display = 'block';
+                scriptConfig.style.display = 'none';
+            } else {
+                httpConfig.style.display = 'none';
+                scriptConfig.style.display = 'block';
             }
         }
 
@@ -1185,6 +1286,7 @@
             e.preventDefault();
 
             const type = parseInt(document.getElementById('taskType').value);
+            const execMode = parseInt(document.getElementById('execMode').value);
             const startTimeStr = document.getElementById('startTime').value;
             const startTime = startTimeStr ? new Date(startTimeStr).getTime() / 1000 : Date.now() / 1000;
 
@@ -1197,16 +1299,27 @@
                 name: document.getElementById('taskName').value,
                 key: key,
                 type: type,
+                exec_mode: execMode,
                 start_time: Math.floor(startTime),
                 interval: type !== 1 ? parseInt(document.getElementById('interval').value) || 60 : 0,
                 max_retry_count: parseInt(document.getElementById('maxRetryCount').value) || 3,
                 max_exec_count: type !== 1 ? parseInt(document.getElementById('maxExecCount').value) || 0 : 0,
-                http_method: document.getElementById('httpMethod').value,
-                http_url: document.getElementById('httpUrl').value,
-                http_headers: parseHeaders(document.getElementById('httpHeaders').value),
-                http_body: document.getElementById('httpBody').value,
-                group: document.getElementById('taskGroup').value || 'default'
             };
+
+            // 根据执行模式添加不同的配置
+            if (execMode === 1) {
+                // HTTP 请求模式
+                taskData.http_method = document.getElementById('httpMethod').value;
+                taskData.http_url = document.getElementById('httpUrl').value;
+                taskData.http_headers = parseHeaders(document.getElementById('httpHeaders').value);
+                taskData.http_body = document.getElementById('httpBody').value;
+                taskData.group = document.getElementById('taskGroup').value || 'default';
+            } else {
+                // 脚本执行模式
+                taskData.script_language = document.getElementById('scriptLanguage').value;
+                taskData.script_code = document.getElementById('scriptCode').value;
+                taskData.group = document.getElementById('taskGroupScript').value || 'default';
+            }
 
             try {
                 let res;
@@ -1250,15 +1363,28 @@
                 document.getElementById('taskName').value = task.name;
                 document.getElementById('taskKey').value = task.key;
                 selectType(task.type);
+                
+                // 设置执行模式
+                if (task.exec_mode) {
+                    selectExecMode(task.exec_mode);
+                }
+                
                 document.getElementById('startTime').value = formatDateTimeLocal(task.start_time);
                 document.getElementById('interval').value = task.interval || '';
                 document.getElementById('maxRetryCount').value = task.max_retry_count;
                 document.getElementById('maxExecCount').value = task.max_exec_count;
-                document.getElementById('httpMethod').value = task.http_method;
-                document.getElementById('httpUrl').value = task.http_url;
+                
+                // HTTP 配置
+                document.getElementById('httpMethod').value = task.http_method || 'POST';
+                document.getElementById('httpUrl').value = task.http_url || '';
                 document.getElementById('httpHeaders').value = task.http_headers ? JSON.stringify(task.http_headers, null, 2) : '';
                 document.getElementById('httpBody').value = task.http_body || '';
-                document.getElementById('taskGroup').value = task.group;
+                document.getElementById('taskGroup').value = task.group || 'default';
+                
+                // 脚本配置
+                document.getElementById('scriptLanguage').value = task.script_language || 'javascript';
+                document.getElementById('scriptCode').value = task.script_code || '';
+                document.getElementById('taskGroupScript').value = task.group || 'default';
 
                 document.getElementById('taskModal').classList.add('active');
             } catch (err) {
@@ -1304,6 +1430,25 @@
                 }
             } catch (err) {
                 alert('恢复失败: ' + err.message);
+            }
+        }
+
+        // 手动重试任务
+        async function retryTask(key) {
+            try {
+                const res = await authFetch(`${API_BASE}/tasks/${key}/retry`, { method: 'POST' });
+                if (res && res.ok) {
+                    alert('任务已触发执行，请稍后查看日志');
+                    // 如果日志窗口已打开，刷新日志
+                    if (currentLogsKey === key) {
+                        refreshLogs();
+                    }
+                } else {
+                    const err = await res.json();
+                    alert(err.error || '重试失败');
+                }
+            } catch (err) {
+                alert('重试失败: ' + err.message);
             }
         }
 
@@ -1434,6 +1579,12 @@
                         <span>${log.retry_count}</span>
                     </div>
                 </div>
+                ${log.exec_command ? `
+                <div style="margin-bottom: 0.5rem; color: var(--text-secondary);">执行命令：</div>
+                <div style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; word-break: break-all; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-bottom: 1rem;">
+${escapeHtml(log.exec_command)}
+                </div>
+                ` : ''}
                 <div style="margin-bottom: 0.5rem; color: var(--text-secondary);">执行结果：</div>
                 <div style="background: var(--bg-primary); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; word-break: break-all; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">
 ${escapeHtml(log.message) || '无'}

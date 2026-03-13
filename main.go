@@ -113,6 +113,7 @@ func main() {
 			authGroup.DELETE("/tasks/:key", handler.DeleteTask)
 			authGroup.POST("/tasks/:key/pause", handler.PauseTask)
 			authGroup.POST("/tasks/:key/resume", handler.ResumeTask)
+			authGroup.POST("/tasks/:key/retry", handler.RetryTask)
 			authGroup.GET("/tasks/:key/logs", handler.GetTaskLogs)
 
 			// 工具

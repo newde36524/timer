@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,13 +39,22 @@ func (e *Executor) Execute(task *models.TimerTask) {
 	var lastErr error
 	var statusCode int
 	var responseBody string
+	var execCommand string
 	var success bool
 	retryCount := 0
 
-	// 重试逻辑
+	// 根据执行模式选择执行方式
 	for i := 0; i <= task.MaxRetryCount; i++ {
 		retryCount = i
-		statusCode, responseBody, lastErr = e.doRequest(task)
+		
+		if task.ExecMode == models.ExecModeScript {
+			// 脚本执行模式
+			statusCode, responseBody, execCommand, lastErr = e.executeScript(task)
+		} else {
+			// HTTP 请求模式（默认）
+			statusCode, responseBody, execCommand, lastErr = e.doRequest(task)
+		}
+		
 		if lastErr == nil && statusCode >= 200 && statusCode < 300 {
 			success = true
 			break
@@ -56,20 +68,19 @@ func (e *Executor) Execute(task *models.TimerTask) {
 
 	// 记录执行日志
 	log := &models.TaskExecuteLog{
-		TaskKey:    task.Key,
-		ExecTime:   time.Now().Unix(),
-		Success:    success,
-		StatusCode: statusCode,
-		RetryCount: retryCount,
+		TaskKey:     task.Key,
+		ExecTime:    time.Now().Unix(),
+		Success:     success,
+		StatusCode:  statusCode,
+		RetryCount:  retryCount,
+		ExecCommand: execCommand,
 	}
 	
 	if lastErr != nil {
-		log.Message = fmt.Sprintf("请求错误: %s", lastErr.Error())
+		log.Message = fmt.Sprintf("执行错误: %s", lastErr.Error())
 	} else if !success {
-		// 记录错误响应
-		log.Message = fmt.Sprintf("HTTP %d - %s", statusCode, truncateString(responseBody, 5000))
+		log.Message = fmt.Sprintf("失败(状态码:%d) - %s", statusCode, truncateString(responseBody, 5000))
 	} else {
-		// 记录成功响应
 		log.Message = fmt.Sprintf("成功 - %s", truncateString(responseBody, 5000))
 	}
 
@@ -109,8 +120,8 @@ func (e *Executor) Execute(task *models.TimerTask) {
 	database.SaveTask(task)
 }
 
-// doRequest 执行 HTTP 请求，返回状态码和响应体
-func (e *Executor) doRequest(task *models.TimerTask) (int, string, error) {
+// doRequest 执行 HTTP 请求，返回状态码、响应体和执行命令
+func (e *Executor) doRequest(task *models.TimerTask) (int, string, string, error) {
 	var body io.Reader
 	if task.HTTPBody != "" {
 		body = bytes.NewBufferString(task.HTTPBody)
@@ -123,7 +134,7 @@ func (e *Executor) doRequest(task *models.TimerTask) (int, string, error) {
 		body,
 	)
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 
 	// 设置请求头
@@ -140,19 +151,216 @@ func (e *Executor) doRequest(task *models.TimerTask) (int, string, error) {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	// 构建执行命令字符串
+	execCommand := fmt.Sprintf("%s %s", task.HTTPMethod, task.HTTPURL)
+	if task.HTTPBody != "" {
+		execCommand += fmt.Sprintf(" --body '%s'", truncateString(task.HTTPBody, 200))
+	}
+
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return 0, "", err
+		return 0, "", execCommand, err
 	}
 	defer resp.Body.Close()
 
 	// 读取响应体
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return resp.StatusCode, "", nil
+		return resp.StatusCode, "", execCommand, nil
 	}
 
-	return resp.StatusCode, string(respBody), nil
+	return resp.StatusCode, string(respBody), execCommand, nil
+}
+
+// executeScript 执行脚本代码，返回状态码、输出和执行命令
+func (e *Executor) executeScript(task *models.TimerTask) (int, string, string, error) {
+	if task.ScriptCode == "" {
+		return 0, "", "", fmt.Errorf("脚本代码为空")
+	}
+
+	// 创建脚本目录
+	scriptDir := "/app/scripts"
+	if err := os.MkdirAll(scriptDir, 0755); err != nil {
+		return 0, "", "", fmt.Errorf("创建脚本目录失败: %v", err)
+	}
+
+	// 根据脚本语言确定文件扩展名和解释器
+	var ext, interpreter string
+	switch task.ScriptLanguage {
+	case models.ScriptLanguageJS:
+		ext = ".js"
+		interpreter = "node"
+	case models.ScriptLanguagePython:
+		ext = ".py"
+		interpreter = "python3"
+	case models.ScriptLanguageShell:
+		ext = ".sh"
+		interpreter = "sh"
+	default:
+		return 0, "", "", fmt.Errorf("不支持的脚本语言: %s", task.ScriptLanguage)
+	}
+
+	// 创建临时脚本文件
+	scriptFile := filepath.Join(scriptDir, fmt.Sprintf("%s%s", task.Key, ext))
+	if err := os.WriteFile(scriptFile, []byte(task.ScriptCode), 0644); err != nil {
+		return 0, "", "", fmt.Errorf("写入脚本文件失败: %v", err)
+	}
+	defer os.Remove(scriptFile)
+
+	// 构建执行命令字符串
+	execCommand := fmt.Sprintf("%s %s", interpreter, scriptFile)
+
+	// 最多尝试3次（首次执行 + 2次自动安装依赖后重试）
+	maxAttempts := 3
+	var lastOutput string
+	var lastErr error
+	var allCommands []string
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// 执行脚本
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		
+		cmd := exec.CommandContext(ctx, interpreter, scriptFile)
+		cmd.Dir = "/app"
+		
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+		lastOutput = stdout.String()
+		if stderr.Len() > 0 {
+			lastOutput += "\n[stderr]: " + stderr.String()
+		}
+
+		if err == nil {
+			cancel()
+			return 200, lastOutput, execCommand, nil
+		}
+
+		if ctx.Err() == context.DeadlineExceeded {
+			cancel()
+			return 0, lastOutput, execCommand, fmt.Errorf("脚本执行超时")
+		}
+		cancel()
+
+		// 检查是否是模块缺失错误，尝试自动安装
+		missingModule := e.detectMissingModule(lastOutput, task.ScriptLanguage)
+		if missingModule == "" {
+			// 不是模块缺失错误，直接返回
+			return 0, lastOutput, execCommand, err
+		}
+
+		// 尝试安装缺失的模块
+		installCmd, installOutput, installErr := e.installModule(missingModule, task.ScriptLanguage)
+		allCommands = append(allCommands, installCmd)
+		
+		if installErr != nil {
+			fullCommand := execCommand + "\n" + strings.Join(allCommands, "\n")
+			return 0, lastOutput + "\n[自动安装失败]: " + installOutput, fullCommand, fmt.Errorf("自动安装依赖失败: %v", installErr)
+		}
+
+		lastOutput += "\n[自动安装依赖]: " + missingModule + " - " + installOutput
+		lastErr = err
+	}
+
+	// 合并所有执行的命令
+	fullCommand := execCommand
+	if len(allCommands) > 0 {
+		fullCommand += "\n" + strings.Join(allCommands, "\n")
+	}
+
+	return 0, lastOutput, fullCommand, lastErr
+}
+
+// detectMissingModule 检测缺失的模块名
+func (e *Executor) detectMissingModule(output string, language models.ScriptLanguage) string {
+	switch language {
+	case models.ScriptLanguagePython:
+		// Python: ModuleNotFoundError: No module named 'xxx' 或 ImportError: No module named xxx
+		if strings.Contains(output, "ModuleNotFoundError") || strings.Contains(output, "ImportError") {
+			// 提取模块名 - 使用正则表达式更可靠
+			// 匹配 "No module named 'xxx'" 或 "No module named \"xxx\"" 或 "No module named xxx"
+			for _, quote := range []string{"'", "\"", ""} {
+				pattern := "No module named " + quote
+				if idx := strings.Index(output, pattern); idx != -1 {
+					start := idx + len(pattern)
+					rest := output[start:]
+					// 查找结束位置
+					var endIdx int
+					if quote != "" {
+						// 有引号，找匹配的引号
+						endIdx = strings.Index(rest, quote)
+					} else {
+						// 无引号，找空格或换行
+						endIdx = strings.IndexAny(rest, " \n\t")
+					}
+					if endIdx > 0 {
+						return strings.TrimSpace(rest[:endIdx])
+					}
+				}
+			}
+		}
+	case models.ScriptLanguageJS:
+		// Node.js: Error: Cannot find module 'xxx' 或 Error: Cannot find module 'xxx'
+		if strings.Contains(output, "Cannot find module") {
+			if idx := strings.Index(output, "Cannot find module '"); idx != -1 {
+				start := idx + len("Cannot find module '")
+				rest := output[start:]
+				if endIdx := strings.Index(rest, "'"); endIdx != -1 {
+					return rest[:endIdx]
+				}
+			}
+			if idx := strings.Index(output, "Cannot find module \""); idx != -1 {
+				start := idx + len("Cannot find module \"")
+				rest := output[start:]
+				if endIdx := strings.Index(rest, "\""); endIdx != -1 {
+					return rest[:endIdx]
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// installModule 安装缺失的模块，返回执行的命令、输出和错误
+func (e *Executor) installModule(moduleName string, language models.ScriptLanguage) (string, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	var execCommand string
+	switch language {
+	case models.ScriptLanguagePython:
+		// 使用 pip 安装，添加 --break-system-packages 以支持 Alpine Linux 3.19+
+		// 添加 --root-user-action=ignore 忽略 root 用户警告
+		// 使用完整路径避免 PATH 问题
+		cmd = exec.CommandContext(ctx, "/usr/bin/pip", "install", "--no-cache-dir", "--break-system-packages", "--root-user-action=ignore", moduleName)
+		execCommand = fmt.Sprintf("pip install --no-cache-dir --break-system-packages --root-user-action=ignore %s", moduleName)
+	case models.ScriptLanguageJS:
+		// 使用 npm 安装到全局
+		cmd = exec.CommandContext(ctx, "npm", "install", "-g", moduleName)
+		execCommand = fmt.Sprintf("npm install -g %s", moduleName)
+	default:
+		return "", "", fmt.Errorf("不支持的语言")
+	}
+
+	cmd.Dir = "/app"
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	output := stdout.String()
+	if stderr.Len() > 0 {
+		output += "\n[stderr]: " + stderr.String()
+	}
+
+	if err != nil {
+		return execCommand, output, err
+	}
+
+	return execCommand, "安装成功", nil
 }
 
 // truncateString 截断字符串
@@ -169,12 +377,13 @@ func (e *Executor) ExecuteWithCallback(task *models.TimerTask, callback func(*mo
 	var lastErr error
 	var statusCode int
 	var responseBody string
+	var execCommand string
 	var success bool
 	retryCount := 0
 
 	for i := 0; i <= task.MaxRetryCount; i++ {
 		retryCount = i
-		statusCode, responseBody, lastErr = e.doRequest(task)
+		statusCode, responseBody, execCommand, lastErr = e.doRequest(task)
 		if lastErr == nil && statusCode >= 200 && statusCode < 300 {
 			success = true
 			break
@@ -186,11 +395,12 @@ func (e *Executor) ExecuteWithCallback(task *models.TimerTask, callback func(*mo
 
 	// 记录执行日志
 	log := &models.TaskExecuteLog{
-		TaskKey:    task.Key,
-		ExecTime:   time.Now().Unix(),
-		Success:    success,
-		StatusCode: statusCode,
-		RetryCount: retryCount,
+		TaskKey:     task.Key,
+		ExecTime:    time.Now().Unix(),
+		Success:     success,
+		StatusCode:  statusCode,
+		RetryCount:  retryCount,
+		ExecCommand: execCommand,
 	}
 	
 	if lastErr != nil {

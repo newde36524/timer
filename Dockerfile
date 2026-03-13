@@ -21,11 +21,48 @@ FROM alpine:3.19
 
 WORKDIR /app
 
-# 安装必要的工具和 Redis
-RUN apk add --no-cache redis supervisor tzdata
+# 安装必要的工具、Redis、Node.js 和 Python 以及常用 Linux 命令
+RUN apk add --no-cache \
+    redis \
+    supervisor \
+    tzdata \
+    nodejs \
+    python3 \
+    py3-pip \
+    # 网络工具
+    curl \
+    wget \
+    bind-tools \
+    iputils \
+    net-tools \
+    # Shell 和文本处理
+    bash \
+    grep \
+    sed \
+    gawk \
+    # 压缩工具
+    tar \
+    gzip \
+    unzip \
+    # 进程和系统工具
+    procps \
+    htop \
+    # 编辑器
+    vim \
+    # 其他常用工具
+    jq \
+    sqlite \
+    openssl \
+    ca-certificates \
+    # 文件操作
+    findutils \
+    coreutils
 
 # 创建数据目录
 RUN mkdir -p /data /var/log/supervisor
+
+# 设置时区
+ENV TZ=Asia/Shanghai
 
 # 从构建阶段复制二进制文件
 COPY --from=builder /app/timer .

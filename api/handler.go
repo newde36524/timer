@@ -188,25 +188,44 @@ func (h *Handler) CreateTask(c *gin.Context) {
 	if req.HTTPMethod == "" {
 		req.HTTPMethod = models.HTTPMethodPost
 	}
+	// 默认执行模式为 HTTP
+	if req.ExecMode == 0 {
+		req.ExecMode = models.ExecModeHTTP
+	}
+
+	// 验证：如果是脚本模式，必须有脚本代码和语言
+	if req.ExecMode == models.ExecModeScript {
+		if req.ScriptCode == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "脚本代码不能为空"})
+			return
+		}
+		if req.ScriptLanguage == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "脚本语言不能为空"})
+			return
+		}
+	}
 
 	// 创建任务
 	task := &models.TimerTask{
-		UserID:        userID,
-		Name:          req.Name,
-		Key:           req.Key,
-		Type:          req.Type,
-		Status:        models.TaskStatusActive,
-		CreateTime:    time.Now().Unix(),
-		StartTime:     req.StartTime,
-		NextExecTime:  req.StartTime,
-		Interval:      req.Interval,
-		MaxRetryCount: req.MaxRetryCount,
-		MaxExecCount:  req.MaxExecCount,
-		HTTPMethod:    req.HTTPMethod,
-		HTTPURL:       req.HTTPURL,
-		HTTPHeaders:   req.HTTPHeaders,
-		HTTPBody:      req.HTTPBody,
-		Group:         req.Group,
+		UserID:         userID,
+		Name:           req.Name,
+		Key:            req.Key,
+		Type:           req.Type,
+		Status:         models.TaskStatusActive,
+		ExecMode:       req.ExecMode,
+		CreateTime:     time.Now().Unix(),
+		StartTime:      req.StartTime,
+		NextExecTime:   req.StartTime,
+		Interval:       req.Interval,
+		MaxRetryCount:  req.MaxRetryCount,
+		MaxExecCount:   req.MaxExecCount,
+		HTTPMethod:     req.HTTPMethod,
+		HTTPURL:        req.HTTPURL,
+		HTTPHeaders:    req.HTTPHeaders,
+		HTTPBody:       req.HTTPBody,
+		ScriptLanguage: req.ScriptLanguage,
+		ScriptCode:     req.ScriptCode,
+		Group:          req.Group,
 	}
 
 	// 计算首次执行时间
@@ -349,6 +368,13 @@ func (h *Handler) UpdateTask(c *gin.Context) {
 	if req.HTTPBody != "" {
 		task.HTTPBody = req.HTTPBody
 	}
+	// 更新脚本相关字段
+	if req.ScriptLanguage != "" {
+		task.ScriptLanguage = req.ScriptLanguage
+	}
+	if req.ScriptCode != "" {
+		task.ScriptCode = req.ScriptCode
+	}
 	if req.Status > 0 {
 		task.Status = req.Status
 	}
@@ -362,11 +388,10 @@ func (h *Handler) UpdateTask(c *gin.Context) {
 		return
 	}
 
-	// 更新调度器
+	// 更新调度器 - 先移除再添加，确保立即生效
+	h.scheduler.RemoveTask(task.Key)
 	if task.Status == models.TaskStatusActive {
-		h.scheduler.UpdateTask(&task)
-	} else {
-		h.scheduler.RemoveTask(task.Key)
+		h.scheduler.AddTask(&task)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -502,6 +527,30 @@ func (h *Handler) GetTaskLogs(c *gin.Context) {
 			"total":      total,
 			"total_page": (total + int64(pageSize) - 1) / int64(pageSize),
 		},
+	})
+}
+
+// RetryTask 手动重试任务
+func (h *Handler) RetryTask(c *gin.Context) {
+	userID := GetUserID(c)
+	key := c.Param("key")
+	if key == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "任务 key 不能为空"})
+		return
+	}
+
+	var task models.TimerTask
+	if err := database.DB.Where("key = ? AND user_id = ? AND is_deleted = 0", key, userID).First(&task).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
+		return
+	}
+
+	// 立即执行任务（异步）
+	go h.scheduler.ExecuteNow(&task)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "任务已触发执行",
+		"data":    task.ToResponse(),
 	})
 }
 

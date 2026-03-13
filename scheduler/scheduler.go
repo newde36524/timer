@@ -254,3 +254,10 @@ func (s *Scheduler) GetAllTasks() []*models.TimerTask {
 	}
 	return tasks
 }
+
+// ExecuteNow 立即执行任务（用于手动重试）
+func (s *Scheduler) ExecuteNow(task *models.TimerTask) {
+	if s.executor != nil {
+		go s.executor(task)
+	}
+}
