@@ -250,6 +250,7 @@ func (h *Handler) ListTasks(c *gin.Context) {
 	userID := GetUserID(c)
 	group := c.Query("group")
 	status := c.Query("status")
+	taskType := c.Query("type")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
@@ -267,6 +268,9 @@ func (h *Handler) ListTasks(c *gin.Context) {
 	}
 	if status != "" {
 		query = query.Where("status = ?", status)
+	}
+	if taskType != "" {
+		query = query.Where("type = ?", taskType)
 	}
 
 	var total int64

@@ -421,8 +421,10 @@
         .pagination {
             display: flex;
             justify-content: center;
+            flex-wrap: wrap;
             gap: 0.5rem;
             margin-top: 1.5rem;
+            max-width: 100%;
         }
 
         .page-btn {
@@ -432,6 +434,7 @@
             border-radius: 8px;
             color: var(--text-primary);
             cursor: pointer;
+            min-width: 2.5rem;
         }
 
         .page-btn.active {
@@ -1054,11 +1057,57 @@
                 return;
             }
 
+            container.innerHTML = renderPageButtons(page, total_page, 'goToPage');
+        }
+
+        // 渲染分页按钮（通用）
+        function renderPageButtons(currentPage, totalPages, clickHandler) {
             let html = '';
-            for (let i = 1; i <= total_page; i++) {
-                html += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+            const maxVisible = 5; // 最多显示5个页码按钮
+            
+            if (totalPages <= maxVisible) {
+                // 页数少，全部显示
+                for (let i = 1; i <= totalPages; i++) {
+                    html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="${clickHandler}(${i})">${i}</button>`;
+                }
+            } else {
+                // 页数多，显示部分
+                // 第一页
+                html += `<button class="page-btn ${1 === currentPage ? 'active' : ''}" onclick="${clickHandler}(1)">1</button>`;
+                
+                // 计算中间显示的页码
+                let start = Math.max(2, currentPage - 1);
+                let end = Math.min(totalPages - 1, currentPage + 1);
+                
+                // 确保中间至少显示3个页码
+                if (end - start < 2) {
+                    if (start === 2) {
+                        end = Math.min(totalPages - 1, start + 2);
+                    } else {
+                        start = Math.max(2, end - 2);
+                    }
+                }
+                
+                // 省略号（左）
+                if (start > 2) {
+                    html += `<span class="page-btn" style="cursor: default; border: none;">...</span>`;
+                }
+                
+                // 中间页码
+                for (let i = start; i <= end; i++) {
+                    html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="${clickHandler}(${i})">${i}</button>`;
+                }
+                
+                // 省略号（右）
+                if (end < totalPages - 1) {
+                    html += `<span class="page-btn" style="cursor: default; border: none;">...</span>`;
+                }
+                
+                // 最后一页
+                html += `<button class="page-btn ${totalPages === currentPage ? 'active' : ''}" onclick="${clickHandler}(${totalPages})">${totalPages}</button>`;
             }
-            container.innerHTML = html;
+            
+            return html;
         }
 
         // 加载统计
@@ -1343,11 +1392,7 @@
                 return;
             }
 
-            let html = '';
-            for (let i = 1; i <= total_page; i++) {
-                html += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="goToLogsPage(${i})">${i}</button>`;
-            }
-            container.innerHTML = html;
+            container.innerHTML = renderPageButtons(page, total_page, 'goToLogsPage');
         }
 
         // 跳转日志页面
