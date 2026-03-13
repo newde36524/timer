@@ -66,13 +66,20 @@ func GetUserID(c *gin.Context) uint {
 // Register 用户注册
 func (h *Handler) Register(c *gin.Context) {
 	var req struct {
-		Username string `json:"username" binding:"required,min=3,max=50"`
-		Password string `json:"password" binding:"required,min=6,max=100"`
-		Nickname string `json:"nickname"`
+		Username   string `json:"username" binding:"required,min=3,max=50"`
+		Password   string `json:"password" binding:"required,min=6,max=100"`
+		Nickname   string `json:"nickname"`
+		InviteCode string `json:"invite_code" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 验证邀请码
+	if req.InviteCode != "jmrx" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "邀请码错误"})
 		return
 	}
 

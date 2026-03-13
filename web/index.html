@@ -622,6 +622,10 @@
                     <label class="form-label">确认密码</label>
                     <input type="password" class="form-input" id="regPassword2" required placeholder="再次输入密码">
                 </div>
+                <div class="form-group">
+                    <label class="form-label">邀请码</label>
+                    <input type="text" class="form-input" id="regInviteCode" required placeholder="请输入邀请码">
+                </div>
                 <div class="form-actions" style="justify-content: center;">
                     <button type="submit" class="btn btn-primary" style="width: 50%; padding: 0.4rem 0.8rem; font-size: 0.75rem; text-align: center;">注册</button>
                 </div>
@@ -973,9 +977,15 @@ console.log('Hello from timer!');
             const nickname = document.getElementById('regNickname').value;
             const password = document.getElementById('regPassword').value;
             const password2 = document.getElementById('regPassword2').value;
+            const inviteCode = document.getElementById('regInviteCode').value;
 
             if (password !== password2) {
                 showLoginError('两次输入的密码不一致');
+                return;
+            }
+
+            if (!inviteCode) {
+                showLoginError('请输入邀请码');
                 return;
             }
 
@@ -983,7 +993,7 @@ console.log('Hello from timer!');
                 const res = await fetch(`${API_BASE}/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, nickname, password })
+                    body: JSON.stringify({ username, nickname, password, invite_code: inviteCode })
                 });
 
                 const data = await res.json();
@@ -1721,6 +1731,9 @@ ${escapeHtml(log.message) || '无'}
         let terminal = null;
         let terminalSocket = null;
         let terminalFitAddon = null;
+        let terminalDataDisposer = null;
+        let terminalResizeDisposer = null;
+        let terminalReconnectTimer = null;
 
         function openTerminalModal() {
             document.getElementById('terminalModal').classList.add('active');
@@ -1736,6 +1749,12 @@ ${escapeHtml(log.message) || '无'}
 
         function closeTerminalModal() {
             document.getElementById('terminalModal').classList.remove('active');
+            
+            // 清除重连定时器
+            if (terminalReconnectTimer) {
+                clearTimeout(terminalReconnectTimer);
+                terminalReconnectTimer = null;
+            }
             
             // 断开 WebSocket 连接
             if (terminalSocket) {
@@ -1804,6 +1823,16 @@ ${escapeHtml(log.message) || '无'}
         function connectTerminal() {
             if (!terminal) return;
 
+            // 清除之前的监听器
+            if (terminalDataDisposer) {
+                terminalDataDisposer.dispose();
+                terminalDataDisposer = null;
+            }
+            if (terminalResizeDisposer) {
+                terminalResizeDisposer.dispose();
+                terminalResizeDisposer = null;
+            }
+
             const statusEl = document.getElementById('terminalStatus');
             statusEl.textContent = '连接中...';
             statusEl.style.color = '#f59e0b';
@@ -1842,10 +1871,16 @@ ${escapeHtml(log.message) || '无'}
                 statusEl.textContent = '已断开';
                 statusEl.style.color = '#ef4444';
                 
-                if (!event.wasClean) {
-                    terminal.writeln('');
-                    terminal.writeln('\x1b[33m连接已断开\x1b[0m');
-                }
+                terminal.writeln('');
+                terminal.writeln('\x1b[33m连接已断开，3秒后自动重连...\x1b[0m');
+                
+                // 自动重连
+                terminalReconnectTimer = setTimeout(() => {
+                    if (document.getElementById('terminalModal').classList.contains('active')) {
+                        terminal.writeln('\x1b[90m正在重新连接...\x1b[0m');
+                        connectTerminal();
+                    }
+                }, 3000);
             };
 
             terminalSocket.onerror = (error) => {
@@ -1854,15 +1889,15 @@ ${escapeHtml(log.message) || '无'}
                 terminal.writeln('\x1b[31m连接错误\x1b[0m');
             };
 
-            // 发送用户输入到服务器
-            terminal.onData((data) => {
+            // 发送用户输入到服务器（保存 disposer）
+            terminalDataDisposer = terminal.onData((data) => {
                 if (terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
                     terminalSocket.send(data);
                 }
             });
 
-            // 处理终端大小变化
-            terminal.onResize(({ cols, rows }) => {
+            // 处理终端大小变化（保存 disposer）
+            terminalResizeDisposer = terminal.onResize(({ cols, rows }) => {
                 if (terminalSocket && terminalSocket.readyState === WebSocket.OPEN) {
                     terminalSocket.send(JSON.stringify({ type: 'resize', cols, rows }));
                 }
