@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -396,27 +397,25 @@ func checkPyPIPackage(packageName string) bool {
 
 // installModule 安装缺失的模块，返回执行的命令、输出和错误
 func (e *Executor) installModule(moduleName string, language models.ScriptLanguage) (string, string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	var cmd *exec.Cmd
-	var execCommand string
 	switch language {
 	case models.ScriptLanguagePython:
-		// 使用 pip 安装，添加 --break-system-packages 以支持 Alpine Linux 3.19+
-		// 添加 --root-user-action=ignore 忽略 root 用户警告
-		// 使用完整路径避免 PATH 问题
-		cmd = exec.CommandContext(ctx, "/usr/bin/pip", "install", "--no-cache-dir", "--break-system-packages", "--root-user-action=ignore", moduleName)
-		execCommand = fmt.Sprintf("pip install --no-cache-dir --break-system-packages --root-user-action=ignore %s", moduleName)
+		return e.installPythonModule(moduleName)
 	case models.ScriptLanguageJS:
-		// 使用 npm 安装到全局
-		cmd = exec.CommandContext(ctx, "npm", "install", "-g", moduleName)
-		execCommand = fmt.Sprintf("npm install -g %s", moduleName)
+		return e.installNPMModule(moduleName)
 	default:
 		return "", "", fmt.Errorf("不支持的语言")
 	}
+}
 
+// installPythonModule 安装 Python 模块
+func (e *Executor) installPythonModule(moduleName string) (string, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+
+	execCommand := fmt.Sprintf("pip install --no-cache-dir --break-system-packages --root-user-action=ignore %s", moduleName)
+	cmd := exec.CommandContext(ctx, "/usr/bin/pip", "install", "--no-cache-dir", "--break-system-packages", "--root-user-action=ignore", moduleName)
 	cmd.Dir = "/app"
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -430,8 +429,330 @@ func (e *Executor) installModule(moduleName string, language models.ScriptLangua
 	if err != nil {
 		return execCommand, output, err
 	}
+	return execCommand, output + "\n安装成功", nil
+}
 
-	return execCommand, "安装成功", nil
+// installNPMModule 安装 npm 模块，自动检测并安装系统依赖
+func (e *Executor) installNPMModule(moduleName string) (string, string, error) {
+	var allCommands []string
+	var allOutput strings.Builder
+
+	// 最多尝试 3 次：首次安装 -> 安装基础编译工具 -> 安装检测到的特定依赖
+	maxAttempts := 3
+	installedDeps := make(map[string]bool)
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+		
+		cmd := exec.CommandContext(ctx, "npm", "install", "-g", moduleName)
+		cmd.Dir = "/app"
+		
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+		output := stdout.String()
+		if stderr.Len() > 0 {
+			output += "\n[stderr]: " + stderr.String()
+		}
+		allOutput.WriteString(output)
+		allCommands = append(allCommands, fmt.Sprintf("npm install -g %s", moduleName))
+
+		if err == nil {
+			cancel()
+			return strings.Join(allCommands, "\n"), allOutput.String() + "\n安装成功", nil
+		}
+
+		cancel()
+
+		// 检测需要安装的系统依赖
+		deps := e.detectNPMSystemDeps(output)
+		if len(deps) == 0 {
+			// 无法检测到系统依赖，尝试安装基础编译工具
+			if attempt == 1 {
+				deps = []string{"build-base", "python3"}
+			} else {
+				// 已经尝试过基础工具，仍然失败
+				return strings.Join(allCommands, "\n"), allOutput.String(), err
+			}
+		}
+
+		// 过滤已安装的依赖
+		var newDeps []string
+		for _, dep := range deps {
+			if !installedDeps[dep] {
+				newDeps = append(newDeps, dep)
+				installedDeps[dep] = true
+			}
+		}
+
+		if len(newDeps) == 0 {
+			return strings.Join(allCommands, "\n"), allOutput.String(), err
+		}
+
+		// 安装系统依赖
+		depCtx, depCancel := context.WithTimeout(context.Background(), 120*time.Second)
+		depCmd := exec.CommandContext(depCtx, "apk", append([]string{"add", "--no-cache"}, newDeps...)...)
+		depCmd.Dir = "/app"
+		
+		var depOut, depErr bytes.Buffer
+		depCmd.Stdout = &depOut
+		depCmd.Stderr = &depErr
+		
+		depErrResult := depCmd.Run()
+		depCancel()
+		
+		depOutput := depOut.String()
+		if depErr.Len() > 0 {
+			depOutput += "\n" + depErr.String()
+		}
+		
+		allCommands = append(allCommands, fmt.Sprintf("apk add --no-cache %s", strings.Join(newDeps, " ")))
+		allOutput.WriteString(fmt.Sprintf("\n[系统依赖]: %s\n%s\n", strings.Join(newDeps, " "), depOutput))
+
+		if depErrResult != nil {
+			return strings.Join(allCommands, "\n"), allOutput.String(), fmt.Errorf("安装系统依赖失败: %v", depErrResult)
+		}
+	}
+
+	return strings.Join(allCommands, "\n"), allOutput.String(), fmt.Errorf("安装失败，已尝试多次")
+}
+
+// detectNPMSystemDeps 从 npm install 错误输出中动态检测需要的系统依赖
+func (e *Executor) detectNPMSystemDeps(output string) []string {
+	// 常见 npm 模块的预设系统依赖（优先使用）
+	presetDeps := map[string][]string{
+		"canvas":    {"build-base", "python3", "cairo-dev", "pango-dev", "jpeg-dev", "giflib-dev", "librsvg-dev", "pixman-dev"},
+		"sharp":     {"build-base", "python3", "vips-dev"},
+		"bcrypt":    {"build-base", "python3"},
+		"node-gyp":  {"build-base", "python3"},
+		"node-canvas": {"build-base", "python3", "cairo-dev", "pango-dev", "jpeg-dev", "giflib-dev", "librsvg-dev", "pixman-dev"},
+		"node-sass": {"build-base", "python3"},
+		"sass":      {"build-base", "python3"},
+	}
+
+	// 检查输出中是否包含这些模块名
+	outputLower := strings.ToLower(output)
+	for moduleName, deps := range presetDeps {
+		if strings.Contains(outputLower, strings.ToLower(moduleName)) {
+			return deps
+		}
+	}
+
+	// 从错误输出中提取缺失的库名
+	libNames := extractMissingLibNames(output)
+	if len(libNames) == 0 {
+		return nil
+	}
+
+	var deps []string
+	seen := make(map[string]bool)
+
+	for _, libName := range libNames {
+		// 动态搜索对应的 Alpine 包
+		packages := e.searchAlpinePackages(libName)
+		for _, pkg := range packages {
+			if !seen[pkg] {
+				seen[pkg] = true
+				deps = append(deps, pkg)
+			}
+		}
+	}
+
+	return deps
+}
+
+// extractMissingLibNames 从错误输出中提取缺失的库名
+func extractMissingLibNames(output string) []string {
+	var libNames []string
+	seen := make(map[string]bool)
+
+	// 常见模式：
+	// 1. fatal error: xxx.h: No such file or directory
+	// 2. Cannot find xxx.h
+	// 3. cannot find -lxxx
+	// 4. xxx.so: cannot open shared object file
+	// 5. Package 'xxx' not found (pkg-config)
+
+	// 模式1: 头文件缺失
+	headerPattern := regexp.MustCompile(`(?i)(?:fatal error:\s*|Cannot find\s*)([\w-]+\.h)`)
+	if matches := headerPattern.FindAllStringSubmatch(output, -1); matches != nil {
+		for _, m := range matches {
+			headerFile := m[1]
+			// 提取库名：cairo.h -> cairo, jpeglib.h -> jpeg
+			libName := extractLibNameFromHeader(headerFile)
+			if libName != "" && !seen[libName] {
+				seen[libName] = true
+				libNames = append(libNames, libName)
+			}
+		}
+	}
+
+	// 模式2: 链接库缺失 -lxxx
+	linkPattern := regexp.MustCompile(`(?i)cannot find -l([\w-]+)`)
+	if matches := linkPattern.FindAllStringSubmatch(output, -1); matches != nil {
+		for _, m := range matches {
+			libName := m[1]
+			if !seen[libName] {
+				seen[libName] = true
+				libNames = append(libNames, libName)
+			}
+		}
+	}
+
+	// 模式3: pkg-config 找不到包
+	pkgConfigPattern := regexp.MustCompile(`(?i)Package\s+'([^']+)'\s+not found`)
+	if matches := pkgConfigPattern.FindAllStringSubmatch(output, -1); matches != nil {
+		for _, m := range matches {
+			libName := m[1]
+			if !seen[libName] {
+				seen[libName] = true
+				libNames = append(libNames, libName)
+			}
+		}
+	}
+
+	// 模式4: .pc 文件缺失
+	pcPattern := regexp.MustCompile(`(?i)Could not find ([\w-]+\.pc)`)
+	if matches := pcPattern.FindAllStringSubmatch(output, -1); matches != nil {
+		for _, m := range matches {
+			pcFile := m[1]
+			libName := strings.TrimSuffix(pcFile, ".pc")
+			if !seen[libName] {
+				seen[libName] = true
+				libNames = append(libNames, libName)
+			}
+		}
+	}
+
+	return libNames
+}
+
+// extractLibNameFromHeader 从头文件名提取库名
+func extractLibNameFromHeader(headerFile string) string {
+	// 去掉 .h 后缀
+	name := strings.TrimSuffix(headerFile, ".h")
+	name = strings.ToLower(name)
+
+	// 特殊映射
+	specialCases := map[string]string{
+		"jpeglib":      "jpeg",
+		"jerror":       "jpeg",
+		"jmorecfg":     "jpeg",
+		"pnglibconf":   "png",
+		"png":          "png",
+		"gif_lib":      "giflib",
+		"tiffconf":     "tiff",
+		"tiff":         "tiff",
+		"webp":         "webp",
+		"rsvg":         "librsvg",
+		"freetype":     "freetype2",
+		"ft2build":     "freetype2",
+		"expat":        "expat",
+		"zlib":         "zlib",
+		"bzlib":        "bzip2",
+		"sqlite3":      "sqlite3",
+		"openssl":      "openssl",
+		"ssl":          "openssl",
+		"crypto":       "openssl",
+		"curl":         "libcurl",
+		"libxml":       "libxml-2.0",
+		"libxml2":      "libxml-2.0",
+		"icu":          "icu-uc",
+		"unicode":      "icu-uc",
+		"fontconfig":   "fontconfig",
+		"pango":        "pango",
+		"cairo":        "cairo",
+		"pixman":       "pixman-1",
+		"glib":         "glib-2.0",
+		"gio":          "glib-2.0",
+		"gobject":      "glib-2.0",
+		"vips":         "vips",
+	}
+
+	if mapped, ok := specialCases[name]; ok {
+		return mapped
+	}
+
+	return name
+}
+
+// searchAlpinePackages 动态搜索 Alpine 包
+func (e *Executor) searchAlpinePackages(libName string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 特殊处理一些常见情况
+	switch libName {
+	case "python", "python3":
+		return []string{"python3"}
+	case "make", "gcc", "g++":
+		return []string{"build-base"}
+	}
+
+	// 先更新 apk 索引（静默模式）
+	updateCmd := exec.CommandContext(ctx, "apk", "update", "--quiet")
+	updateCmd.Dir = "/app"
+	updateCmd.Run() // 忽略错误，可能已经更新过
+
+	// 构建搜索候选列表
+	candidates := []string{
+		libName + "-dev",
+		libName,
+		"lib" + libName + "-dev",
+		"lib" + libName,
+	}
+
+	var foundPackages []string
+
+	// 使用 apk search 搜索包
+	for _, candidate := range candidates {
+		cmd := exec.CommandContext(ctx, "apk", "search", "-q", candidate)
+		cmd.Dir = "/app"
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		if err := cmd.Run(); err != nil {
+			continue
+		}
+
+		result := strings.TrimSpace(out.String())
+		if result == "" {
+			continue
+		}
+
+		// apk search -q 只返回包名，不返回版本
+		// 检查是否有精确匹配
+		lines := strings.Split(result, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			// 精确匹配
+			if line == candidate {
+				foundPackages = append(foundPackages, candidate)
+				break
+			}
+		}
+
+		if len(foundPackages) > 0 {
+			break
+		}
+	}
+
+	// 去重
+	seen := make(map[string]bool)
+	var result []string
+	for _, pkg := range foundPackages {
+		if !seen[pkg] {
+			seen[pkg] = true
+			result = append(result, pkg)
+		}
+	}
+
+	return result
 }
 
 // truncateString 截断字符串

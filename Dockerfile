@@ -3,6 +3,9 @@ FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
+# 配置 Alpine 镜像源（阿里云）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
 # 安装依赖
 RUN apk add --no-cache git gcc musl-dev
 
@@ -21,12 +24,16 @@ FROM alpine:3.19
 
 WORKDIR /app
 
+# 配置 Alpine 镜像源（阿里云）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
 # 安装必要的工具、Redis、Node.js 和 Python 以及常用 Linux 命令
 RUN apk add --no-cache \
     redis \
     supervisor \
     tzdata \
     nodejs \
+    npm \
     python3 \
     py3-pip \
     # 网络工具
@@ -63,6 +70,12 @@ RUN mkdir -p /data /var/log/supervisor
 
 # 设置时区
 ENV TZ=Asia/Shanghai
+
+# 设置 Node.js 全局模块路径
+ENV NODE_PATH=/usr/local/lib/node_modules
+
+# 配置 npm 国内镜像
+RUN npm config set registry https://registry.npmmirror.com
 
 # 从构建阶段复制二进制文件
 COPY --from=builder /app/timer .
